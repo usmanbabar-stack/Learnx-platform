@@ -3,8 +3,8 @@ services:
     name: learnx-backend-api
     env: docker
     plan: free
-    dockerContext: ./backend
-    dockerfilePath: ./Dockerfile
+    dockerContext: backend
+    dockerfilePath: backend/Dockerfile
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
@@ -65,8 +65,8 @@ services:
     name: learnx-asr
     env: docker
     plan: free
-    dockerContext: ./asr-server
-    dockerfilePath: ./Dockerfile
+    dockerContext: asr-server
+    dockerfilePath: asr-server/Dockerfile
     healthCheckPath: /health
     autoDeploy: true
     envVars:
