@@ -35,6 +35,62 @@ class AskController {
             const { videoId, question, currentTime } = req.body;
             const time = typeof currentTime === 'number' && currentTime >= 0 ? currentTime : 0;
             const startTime = Date.now();
+            // 🛡️ STEP 1: Pre-filter message BEFORE any expensive processing
+            // This catches greetings, off-topic, and inappropriate messages early
+            const videoMetaForClassification = await (async () => {
+                try {
+                    const video = await videoRepository_1.videoRepository.findByVideoId(videoId);
+                    return video?.metadata?.title || 'Educational Video';
+                }
+                catch {
+                    return 'Educational Video';
+                }
+            })();
+            const messageClassification = await agenticRagService_1.agenticRagService.classifyMessage(question, videoMetaForClassification);
+            // Handle non-educational messages immediately (no RAG needed)
+            if (messageClassification.category === 'greeting') {
+                const greetingResponses = [
+                    `Hello! 👋 I'm here to help you learn from this video. Ask me any question about the content!`,
+                    `Hi there! 🎓 Ready to help you understand the video. What would you like to know?`,
+                    `Hey! 😊 I'm your study assistant. Feel free to ask about anything in the video!`,
+                ];
+                res.status(200).json({
+                    success: true,
+                    data: {
+                        answer: greetingResponses[Math.floor(Math.random() * greetingResponses.length)],
+                        reasoning: 'Greeting message',
+                        outOfContext: false,
+                        metadata: { intentDetected: 'greeting', processingMode: 'instant', processingTime: Date.now() - startTime }
+                    }
+                });
+                return;
+            }
+            if (messageClassification.category === 'inappropriate') {
+                res.status(200).json({
+                    success: true,
+                    data: {
+                        answer: `I'm sorry, I can't respond to that message. Please keep our conversation respectful and focused on learning. 🙏\n\nFeel free to ask me any educational questions about the video!`,
+                        reasoning: 'Inappropriate content filtered',
+                        outOfContext: true,
+                        metadata: { intentDetected: 'inappropriate', processingMode: 'filtered', processingTime: Date.now() - startTime }
+                    }
+                });
+                return;
+            }
+            if (messageClassification.category === 'off_topic') {
+                res.status(200).json({
+                    success: true,
+                    data: {
+                        answer: `I'm sorry, I can only answer questions related to this video's educational content. 📚\n\nPlease ask me something about what you're learning in the video!`,
+                        reasoning: 'Off-topic question filtered',
+                        outOfContext: true,
+                        metadata: { intentDetected: 'off_topic', processingMode: 'filtered', processingTime: Date.now() - startTime }
+                    }
+                });
+                return;
+            }
+            // ✅ Message is educational - proceed with normal processing
+            logger_1.logger.info(`Message classified as educational, proceeding with RAG`);
             const cacheKey = `ask:${videoId}:${Buffer.from(question).toString('base64').slice(0, 50)}`;
             // Try Redis cache first (if available)
             try {
@@ -49,7 +105,7 @@ class AskController {
             catch { }
             // 🚀 OPTIMIZATION: Run video metadata fetch and transcript fetch in PARALLEL
             // This saves significant time vs sequential fetching
-            let title = 'Unknown Video';
+            let title = videoMetaForClassification; // Reuse from classification
             let channel = '';
             let transcriptQuality;
             const [videoResult, transcriptResult] = await Promise.allSettled([

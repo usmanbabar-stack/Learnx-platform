@@ -29,5 +29,6 @@ router.get('/:videoId/search', searchTranscriptValidation, transcriptController.
 router.get('/:videoId/summary', videoIdValidation, transcriptController.generateSummary.bind(transcriptController));
 router.get('/:videoId/glossary', videoIdValidation, transcriptController.generateGlossary.bind(transcriptController));
 router.get('/:videoId/flashcards', videoIdValidation, transcriptController.generateFlashcards.bind(transcriptController));
+router.get('/:videoId/quiz', videoIdValidation, transcriptController.generateQuiz.bind(transcriptController));
 
 export default router;

@@ -64,12 +64,12 @@ export async function transcribeSnippetWithWhisper(
     const provider = (process.env.ASR_PROVIDER || 'openai').toLowerCase();
     let resp: any;
     if (provider === 'local') {
-      const asrUrl = process.env.ASR_SERVER_URL || 'http://localhost:8000/transcribe';
+      const asrServerUrl = process.env.ASR_SERVER_URL || 'http://localhost:8000';
       const fd = new FormData();
       fd.append('file', fs.createReadStream(tmpPath));
       fd.append('response_format', 'verbose_json');
       fd.append('language', 'en');
-      const { data } = await axios.post(asrUrl, fd, { headers: fd.getHeaders(), timeout: 15000 });
+      const { data } = await axios.post(`${asrServerUrl}/transcribe`, fd, { headers: fd.getHeaders(), timeout: 15000 });
       resp = data;
     } else {
       const apiKey = process.env.OPENAI_API_KEY || '';
@@ -194,14 +194,14 @@ export async function transcribeFullAudioWithWhisper(
       //   file: audio file
       //   response_format: "verbose_json"
       //   language: ISO language code (e.g. "en", "ur", "hi")
-      const asrUrl = process.env.ASR_SERVER_URL || 'http://localhost:8000/transcribe';
+      const asrServerUrl = process.env.ASR_SERVER_URL || 'http://localhost:8000';
       const fd = new FormData();
       fd.append('file', fs.createReadStream(tmpPath));
       fd.append('response_format', 'verbose_json');
       // Let the ASR engine auto-detect language by default. If you explicitly
       // set ASR_LANGUAGE in env (e.g. "ur" or "hi"), that will be sent instead.
       fd.append('language', process.env.ASR_LANGUAGE || 'auto');
-      const { data } = await axios.post(asrUrl, fd, {
+      const { data } = await axios.post(`${asrServerUrl}/transcribe`, fd, {
         headers: fd.getHeaders(),
         timeout: 60000,
       });

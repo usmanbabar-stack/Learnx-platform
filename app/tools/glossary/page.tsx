@@ -259,13 +259,15 @@ export default function GlossaryPage() {
 
   return (
     <AuthGuard>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background relative">
+        <div className="absolute inset-0 mesh-gradient pointer-events-none" />
+        <div className="relative z-10">
         <Navigation />
 
         <div className="container mx-auto px-4 py-6 max-w-7xl">
           {/* Header */}
-          <div className="mb-6">
-            <Button variant="ghost" size="sm" asChild className="mb-4">
+          <div className="mb-6 animate-slide-up">
+            <Button variant="ghost" size="sm" asChild className="mb-4 hover:bg-muted/50">
               <Link href={videoId ? `/learn/${videoId}` : "/learn"}>
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to Video
@@ -275,8 +277,8 @@ export default function GlossaryPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-3xl font-black font-montserrat flex items-center gap-2">
-                  <BookMarked className="w-8 h-8 text-accent" />
-                  Glossary
+                  <BookMarked className="w-8 h-8 text-primary" />
+                  <span className="gradient-text">Glossary</span>
                 </h1>
                 <p className="text-muted-foreground font-open-sans mt-2">
                   Key terms and definitions from your learning content
@@ -328,7 +330,7 @@ export default function GlossaryPage() {
 
           {/* Waiting for Transcript State */}
           {transcriptStatus === 'waiting' && (
-            <Card>
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
               <CardContent className="py-12">
                 <div className="flex flex-col items-center justify-center">
                   <Loader2 className="w-8 h-8 animate-spin text-yellow-500 mb-4" />
@@ -346,7 +348,7 @@ export default function GlossaryPage() {
 
           {/* Error State */}
           {error && !loading && transcriptStatus === 'error' && (
-            <Card>
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
               <CardContent className="py-12">
                 <div className="flex flex-col items-center justify-center text-center">
                   <AlertCircle className="w-12 h-12 text-destructive mb-4" />
@@ -365,7 +367,7 @@ export default function GlossaryPage() {
 
           {/* Loading State */}
           {loading && transcriptStatus !== 'waiting' && (
-            <Card>
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
               <CardContent className="py-12">
                 <div className="flex flex-col items-center justify-center">
                   <Loader2 className="w-8 h-8 animate-spin text-accent mb-4" />
@@ -382,10 +384,10 @@ export default function GlossaryPage() {
             <>
               {/* Stats */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <Card>
+                <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
                   <CardContent className="pt-6">
                     <div className="text-center">
-                      <div className="text-3xl font-bold font-montserrat text-accent">
+                      <div className="text-3xl font-bold font-montserrat text-primary">
                         {terms.length}
                       </div>
                       <p className="text-sm text-muted-foreground font-open-sans mt-1">
@@ -395,10 +397,10 @@ export default function GlossaryPage() {
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
                   <CardContent className="pt-6">
                     <div className="text-center">
-                      <div className="text-3xl font-bold font-montserrat text-accent">
+                      <div className="text-3xl font-bold font-montserrat text-primary">
                         {categories.length}
                       </div>
                       <p className="text-sm text-muted-foreground font-open-sans mt-1">
@@ -408,10 +410,10 @@ export default function GlossaryPage() {
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
                   <CardContent className="pt-6">
                     <div className="text-center">
-                      <div className="text-3xl font-bold font-montserrat text-accent">
+                      <div className="text-3xl font-bold font-montserrat text-primary">
                         {filteredTerms.length}
                       </div>
                       <p className="text-sm text-muted-foreground font-open-sans mt-1">
@@ -423,7 +425,7 @@ export default function GlossaryPage() {
               </div>
 
               {/* Search and Filters */}
-              <Card className="mb-6">
+              <Card className="mb-6 border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardContent className="pt-6">
                   <div className="space-y-4">
                     {/* Search Bar */}
@@ -433,7 +435,7 @@ export default function GlossaryPage() {
                         placeholder="Search terms or definitions..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10 font-open-sans"
+                        className="pl-10 font-open-sans bg-muted/50 border-border/50 focus:border-primary/50"
                       />
                     </div>
 
@@ -499,9 +501,9 @@ export default function GlossaryPage() {
                   {Object.keys(groupedTerms)
                     .sort()
                     .map((letter) => (
-                      <Card key={letter} id={`letter-${letter}`}>
+                      <Card key={letter} id={`letter-${letter}`} className="border-border/50 bg-card/80 backdrop-blur-sm">
                         <CardHeader>
-                          <CardTitle className="text-2xl font-black font-montserrat text-accent">
+                          <CardTitle className="text-2xl font-black font-montserrat text-primary">
                             {letter}
                           </CardTitle>
                         </CardHeader>
@@ -560,10 +562,10 @@ export default function GlossaryPage() {
               )}
 
               {/* Footer Info */}
-              <Card className="mt-6">
+              <Card className="mt-6 border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardContent className="pt-6">
                   <div className="flex items-start gap-3">
-                    <BookMarked className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
+                    <BookMarked className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
                     <div>
                       <h3 className="font-bold font-montserrat mb-1">About This Glossary</h3>
                       <p className="text-sm text-muted-foreground font-open-sans">
@@ -577,6 +579,7 @@ export default function GlossaryPage() {
               </Card>
             </>
           )}
+        </div>
         </div>
       </div>
     </AuthGuard>

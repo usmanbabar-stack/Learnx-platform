@@ -126,34 +126,40 @@ export default function SignupPage() {
   ]
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="flex items-center justify-center mb-8">
-          <div className="flex items-center space-x-2">
-            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-              <Brain className="w-6 h-6 text-primary-foreground" />
-            </div>
-            <span className="text-2xl font-black font-montserrat text-foreground">LEARNX</span>
-          </div>
-        </div>
+    <div className="min-h-screen bg-background relative overflow-hidden">
+      {/* Background decoration */}
+      <div className="absolute inset-0 mesh-gradient" />
+      <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary/8 rounded-full blur-3xl" />
+      <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-chart-5/8 rounded-full blur-3xl" />
 
-        <Card className="border-border">
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl font-black font-montserrat">Create Account</CardTitle>
-            <CardDescription className="font-open-sans">
-              Join thousands of learners transforming their education
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+      <div className="relative z-10 flex items-center justify-center p-4 py-10">
+        <div className="w-full max-w-md animate-scale-in">
+          {/* Logo */}
+          <div className="flex items-center justify-center mb-6">
+            <div className="flex items-center space-x-2">
+              <div className="w-10 h-10 bg-gradient-to-br from-primary to-chart-5 rounded-xl flex items-center justify-center shadow-md">
+                <Brain className="w-6 h-6 text-white" />
+              </div>
+              <span className="text-2xl font-black font-montserrat gradient-text">LEARNX</span>
+            </div>
+          </div>
+
+          <Card className="border-border/50 bg-card/80 backdrop-blur-xl shadow-xl shadow-primary/5">
+            <CardHeader className="text-center pb-2">
+              <CardTitle className="text-2xl font-black font-montserrat">Create Account</CardTitle>
+              <CardDescription className="font-open-sans">
+                Join thousands of learners transforming their education
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
             {error && (
-              <Alert className="mb-4 border-destructive/50 text-destructive">
+              <Alert className="mb-4 border-destructive/50 bg-destructive/5 text-destructive">
                 <AlertDescription className="font-open-sans">{error}</AlertDescription>
               </Alert>
             )}
             
             {success && (
-              <Alert className="mb-4 border-green-500/50 text-green-600">
+              <Alert className="mb-4 border-green-500/50 bg-green-500/5 text-green-600">
                 <AlertDescription className="font-open-sans">
                   ✅ Account created successfully! Please{" "}
                   <Link href="/login" className="underline font-semibold">
@@ -166,7 +172,7 @@ export default function SignupPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="firstName" className="font-open-sans">
+                  <Label htmlFor="firstName" className="font-open-sans text-sm font-medium">
                     First Name
                   </Label>
                   <Input
@@ -175,11 +181,11 @@ export default function SignupPage() {
                     value={formData.firstName}
                     onChange={(e) => handleInputChange("firstName", e.target.value)}
                     required
-                    className="font-open-sans"
+                    className="font-open-sans h-11 bg-muted/50 border-border/50 focus:border-primary/50 focus:ring-primary/20 h-11 bg-muted/50 border-border/50 focus:border-primary/50 focus:ring-primary/20"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="lastName" className="font-open-sans">
+                  <Label htmlFor="lastName" className="font-open-sans text-sm font-medium">
                     Last Name
                   </Label>
                   <Input
@@ -188,13 +194,13 @@ export default function SignupPage() {
                     value={formData.lastName}
                     onChange={(e) => handleInputChange("lastName", e.target.value)}
                     required
-                    className="font-open-sans"
+                    className="font-open-sans h-11 bg-muted/50 border-border/50 focus:border-primary/50 focus:ring-primary/20"
                   />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email" className="font-open-sans">
+                <Label htmlFor="email" className="font-open-sans text-sm font-medium">
                   Email
                 </Label>
                 <Input
@@ -204,16 +210,16 @@ export default function SignupPage() {
                   value={formData.email}
                   onChange={(e) => handleInputChange("email", e.target.value)}
                   required
-                  className="font-open-sans"
+                  className="font-open-sans h-11 bg-muted/50 border-border/50 focus:border-primary/50 focus:ring-primary/20"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="role" className="font-open-sans">
+                <Label htmlFor="role" className="font-open-sans text-sm font-medium">
                   I am a
                 </Label>
                 <Select value={formData.role} onValueChange={(value) => handleInputChange("role", value)}>
-                  <SelectTrigger className="font-open-sans">
+                  <SelectTrigger className="font-open-sans h-11 bg-muted/50 border-border/50">
                     <SelectValue placeholder="Select your role" />
                   </SelectTrigger>
                   <SelectContent>
@@ -224,7 +230,7 @@ export default function SignupPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="institution" className="font-open-sans">
+                <Label htmlFor="institution" className="font-open-sans text-sm font-medium">
                   Institution (Optional)
                 </Label>
                 <Input
@@ -232,12 +238,12 @@ export default function SignupPage() {
                   placeholder="University or Organization"
                   value={formData.institution}
                   onChange={(e) => handleInputChange("institution", e.target.value)}
-                  className="font-open-sans"
+                  className="font-open-sans h-11 bg-muted/50 border-border/50 focus:border-primary/50 focus:ring-primary/20"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="font-open-sans">
+                <Label htmlFor="password" className="font-open-sans text-sm font-medium">
                   Password
                 </Label>
                 <div className="relative">
@@ -248,7 +254,7 @@ export default function SignupPage() {
                     value={formData.password}
                     onChange={(e) => handleInputChange("password", e.target.value)}
                     required
-                    className="pr-10 font-open-sans"
+                    className="pr-10 font-open-sans h-11 bg-muted/50 border-border/50 focus:border-primary/50 focus:ring-primary/20"
                   />
                   <Button
                     type="button"
@@ -281,7 +287,7 @@ export default function SignupPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="confirmPassword" className="font-open-sans">
+                <Label htmlFor="confirmPassword" className="font-open-sans text-sm font-medium">
                   Confirm Password
                 </Label>
                 <div className="relative">
@@ -292,7 +298,7 @@ export default function SignupPage() {
                     value={formData.confirmPassword}
                     onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
                     required
-                    className="pr-10 font-open-sans"
+                    className="pr-10 font-open-sans h-11 bg-muted/50 border-border/50 focus:border-primary/50 focus:ring-primary/20"
                   />
                   <Button
                     type="button"
@@ -313,7 +319,7 @@ export default function SignupPage() {
                 )}
               </div>
 
-              <Button type="submit" className="w-full font-open-sans" disabled={isLoading}>
+              <Button type="submit" className="w-full h-11 font-open-sans font-semibold bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 shadow-md shadow-primary/20" disabled={isLoading}>
                 {isLoading ? "Creating Account..." : "Create Account"}
               </Button>
             </form>
@@ -323,7 +329,7 @@ export default function SignupPage() {
               <div className="text-center">
                 <p className="text-sm text-muted-foreground font-open-sans">
                   Already have an account?{" "}
-                  <Link href="/login" className="text-accent hover:underline font-medium">
+                  <Link href="/login" className="text-primary hover:underline font-semibold">
                     Sign in
                   </Link>
                 </p>
@@ -332,13 +338,14 @@ export default function SignupPage() {
           </CardContent>
         </Card>
 
-        <div className="mt-8 text-center">
-          <Link
-            href="/"
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors font-open-sans"
-          >
-            ← Back to home
-          </Link>
+          <div className="mt-6 text-center">
+            <Link
+              href="/"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors font-open-sans"
+            >
+              ← Back to home
+            </Link>
+          </div>
         </div>
       </div>
     </div>

@@ -29,36 +29,40 @@ export default function ForgotPasswordPage() {
 
   if (isSubmitted) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <div className="flex items-center justify-center mb-8">
+      <div className="min-h-screen bg-background relative overflow-hidden flex items-center justify-center p-4">
+        <div className="absolute inset-0 mesh-gradient" />
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary/8 rounded-full blur-3xl" />
+        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-chart-5/8 rounded-full blur-3xl" />
+        
+        <div className="relative z-10 w-full max-w-md animate-scale-in">
+          <div className="flex items-center justify-center mb-6">
             <div className="flex items-center space-x-2">
-              <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-                <Brain className="w-6 h-6 text-primary-foreground" />
+              <div className="w-10 h-10 bg-gradient-to-br from-primary to-chart-5 rounded-xl flex items-center justify-center shadow-md">
+                <Brain className="w-6 h-6 text-white" />
               </div>
-              <span className="text-2xl font-black font-montserrat text-foreground">LEARNX</span>
+              <span className="text-2xl font-black font-montserrat gradient-text">LEARNX</span>
             </div>
           </div>
 
-          <Card className="border-border text-center">
+          <Card className="border-border/50 bg-card/80 backdrop-blur-xl shadow-xl shadow-primary/5 text-center">
             <CardHeader>
-              <div className="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Mail className="w-8 h-8 text-accent" />
+              <div className="w-16 h-16 bg-gradient-to-br from-primary/20 to-chart-5/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Mail className="w-8 h-8 text-primary" />
               </div>
               <CardTitle className="text-2xl font-black font-montserrat">Check Your Email</CardTitle>
               <CardDescription className="font-open-sans">
-                We've sent a password reset link to <strong>{email}</strong>
+                We&apos;ve sent a password reset link to <strong>{email}</strong>
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground font-open-sans">
-                Didn't receive the email? Check your spam folder or try again.
+                Didn&apos;t receive the email? Check your spam folder or try again.
               </p>
               <div className="space-y-2">
-                <Button onClick={() => setIsSubmitted(false)} variant="outline" className="w-full font-open-sans">
+                <Button onClick={() => setIsSubmitted(false)} variant="outline" className="w-full h-11 font-open-sans border-border/50">
                   Try Different Email
                 </Button>
-                <Button asChild className="w-full font-open-sans">
+                <Button asChild className="w-full h-11 font-open-sans font-semibold bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 shadow-md shadow-primary/20">
                   <Link href="/login">Back to Sign In</Link>
                 </Button>
               </div>
@@ -70,29 +74,33 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen bg-background relative overflow-hidden flex items-center justify-center p-4">
+      <div className="absolute inset-0 mesh-gradient" />
+      <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary/8 rounded-full blur-3xl" />
+      <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-chart-5/8 rounded-full blur-3xl" />
+      
+      <div className="relative z-10 w-full max-w-md animate-scale-in">
         {/* Logo */}
-        <div className="flex items-center justify-center mb-8">
+        <div className="flex items-center justify-center mb-6">
           <div className="flex items-center space-x-2">
-            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-              <Brain className="w-6 h-6 text-primary-foreground" />
+            <div className="w-10 h-10 bg-gradient-to-br from-primary to-chart-5 rounded-xl flex items-center justify-center shadow-md">
+              <Brain className="w-6 h-6 text-white" />
             </div>
-            <span className="text-2xl font-black font-montserrat text-foreground">LEARNX</span>
+            <span className="text-2xl font-black font-montserrat gradient-text">LEARNX</span>
           </div>
         </div>
 
-        <Card className="border-border">
+        <Card className="border-border/50 bg-card/80 backdrop-blur-xl shadow-xl shadow-primary/5">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl font-black font-montserrat">Reset Password</CardTitle>
             <CardDescription className="font-open-sans">
-              Enter your email address and we'll send you a link to reset your password
+              Enter your email address and we&apos;ll send you a link to reset your password
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email" className="font-open-sans">
+                <Label htmlFor="email" className="font-open-sans text-sm font-medium">
                   Email Address
                 </Label>
                 <Input
@@ -102,11 +110,11 @@ export default function ForgotPasswordPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="font-open-sans"
+                  className="font-open-sans h-11 bg-muted/50 border-border/50 focus:border-primary/50 focus:ring-primary/20"
                 />
               </div>
 
-              <Button type="submit" className="w-full font-open-sans" disabled={isLoading}>
+              <Button type="submit" className="w-full h-11 font-open-sans font-semibold bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 shadow-md shadow-primary/20" disabled={isLoading}>
                 {isLoading ? "Sending Reset Link..." : "Send Reset Link"}
               </Button>
             </form>

@@ -1,11 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.transcriptController = exports.TranscriptController = void 0;
-const Video_1 = require("../models/Video");
-const youtubeScraperService_1 = require("../services/youtubeScraperService");
+const videoRepository_1 = require("../repositories/videoRepository");
 const logger_1 = require("../utils/logger");
 const express_validator_1 = require("express-validator");
 const redis_1 = require("../config/redis");
+const summaryService_1 = require("../services/summaryService");
+const glossaryService_1 = require("../services/glossaryService");
+const flashcardService_1 = require("../services/flashcardService");
+const quizService_1 = require("../services/quizService");
 class TranscriptController {
     /**
      * Get video transcript
@@ -40,61 +43,38 @@ class TranscriptController {
             catch (cacheError) {
                 logger_1.logger.warn('Redis cache error:', cacheError);
             }
-            // Try to find video in database
-            let video = await Video_1.Video.findOne({ videoId });
-            // If not found, scrape the video
-            if (!video) {
-                try {
-                    const [metadata, transcript] = await Promise.all([
-                        youtubeScraperService_1.youtubeScraperService.getVideoMetadata(videoId),
-                        youtubeScraperService_1.youtubeScraperService.getVideoTranscript(videoId)
-                    ]);
-                    // Save video to database
-                    const subject = this.determineSubject(metadata.title, metadata.description);
-                    const qualityScore = this.calculateQualityScore(metadata, transcript);
-                    video = new Video_1.Video({
-                        videoId,
-                        metadata,
-                        transcript,
-                        subject,
-                        difficulty: this.determineDifficulty(metadata.title, metadata.description),
-                        qualityScore,
-                        isEducational: qualityScore >= 5
-                    });
-                    await video.save();
-                    logger_1.logger.info(`New video with transcript saved: ${videoId}`);
-                }
-                catch (error) {
-                    logger_1.logger.error(`Error scraping video ${videoId}:`, error);
-                    res.status(404).json({
-                        success: false,
-                        message: 'Video not found or transcript unavailable'
-                    });
-                    return;
-                }
+            // Get transcript from PostgreSQL
+            const transcript = await videoRepository_1.videoRepository.getTranscriptByVideoId(videoId);
+            if (!transcript || transcript.length === 0) {
+                res.status(404).json({
+                    success: false,
+                    message: 'Transcript not available or still processing',
+                    status: 'transcript_pending'
+                });
+                return;
             }
             // Format transcript based on request
             let formattedTranscript;
             if (format === 'text') {
                 formattedTranscript = {
                     videoId,
-                    text: video.transcript.map(item => item.text).join(' '),
-                    wordCount: video.transcript.reduce((count, item) => count + item.text.split(' ').length, 0)
+                    text: transcript.map((item) => item.text).join(' '),
+                    wordCount: transcript.reduce((count, item) => count + item.text.split(' ').length, 0)
                 };
             }
             else if (format === 'srt') {
                 formattedTranscript = {
                     videoId,
-                    srt: this.convertToSRT(video.transcript)
+                    srt: this.convertToSRT(transcript)
                 };
             }
             else {
                 // Default JSON format
                 formattedTranscript = {
                     videoId,
-                    transcript: timestamps === 'true' ? video.transcript : video.transcript.map(item => ({ text: item.text })),
-                    totalDuration: video.transcript.length > 0 ? video.transcript[video.transcript.length - 1].start + video.transcript[video.transcript.length - 1].duration : 0,
-                    segmentCount: video.transcript.length
+                    transcript: timestamps === 'true' ? transcript : transcript.map((item) => ({ text: item.text })),
+                    totalDuration: transcript.length > 0 ? transcript[transcript.length - 1].start + transcript[transcript.length - 1].duration : 0,
+                    segmentCount: transcript.length
                 };
             }
             // Cache the result
@@ -141,15 +121,9 @@ class TranscriptController {
                 });
                 return;
             }
-            const video = await Video_1.Video.findOne({ videoId });
-            if (!video) {
-                res.status(404).json({
-                    success: false,
-                    message: 'Video not found'
-                });
-                return;
-            }
-            if (video.transcript.length === 0) {
+            // Get transcript from PostgreSQL
+            const transcript = await videoRepository_1.videoRepository.getTranscriptByVideoId(videoId);
+            if (!transcript || transcript.length === 0) {
                 res.status(404).json({
                     success: false,
                     message: 'No transcript available for this video'
@@ -157,19 +131,19 @@ class TranscriptController {
                 return;
             }
             // Search transcript segments
-            const searchResults = video.transcript
+            const searchResults = transcript
                 .map((segment, index) => ({
                 ...segment,
                 index,
                 relevanceScore: this.calculateRelevanceScore(segment.text, query)
             }))
-                .filter(segment => segment.relevanceScore > 0)
+                .filter((segment) => segment.relevanceScore > 0)
                 .sort((a, b) => b.relevanceScore - a.relevanceScore)
                 .slice(0, 20); // Limit to top 20 results
             // Add context (previous and next segments)
-            const resultsWithContext = searchResults.map(result => {
-                const contextBefore = result.index > 0 ? video.transcript[result.index - 1] : null;
-                const contextAfter = result.index < video.transcript.length - 1 ? video.transcript[result.index + 1] : null;
+            const resultsWithContext = searchResults.map((result) => {
+                const contextBefore = result.index > 0 ? transcript[result.index - 1] : null;
+                const contextAfter = result.index < transcript.length - 1 ? transcript[result.index + 1] : null;
                 return {
                     segment: {
                         text: result.text,
@@ -204,6 +178,10 @@ class TranscriptController {
     }
     /**
      * Generate transcript summary
+     * CACHING STRATEGY:
+     * 1. Check PostgreSQL (permanent cache - shared across all users)
+     * 2. If not found, generate with LLM and save to PostgreSQL
+     * 3. Redis used only for short-term session cache
      */
     async generateSummary(req, res) {
         try {
@@ -217,25 +195,39 @@ class TranscriptController {
                 return;
             }
             const { videoId } = req.params;
-            const { length = 'medium' } = req.query; // short, medium, long
-            // Check cache first
-            const cacheKey = `summary:${videoId}:${length}`;
+            // 1. CHECK POSTGRESQL FIRST (permanent cache - shared for all users)
             try {
-                const redisClient = (0, redis_1.getRedisClient)();
-                const cachedSummary = await redisClient?.get(cacheKey);
-                if (cachedSummary) {
+                const savedSummary = await (0, videoRepository_1.getSummaryByVideoId)(videoId);
+                // Only use cached summary if it has actual content (not a failed generation)
+                const hasValidContent = savedSummary &&
+                    savedSummary.overview && savedSummary.overview.length > 0 &&
+                    savedSummary.keyPoints && savedSummary.keyPoints.length > 0;
+                if (hasValidContent) {
+                    logger_1.logger.info(`Returning cached summary from PostgreSQL for ${videoId}`);
+                    // Get video metadata for response
+                    const video = await videoRepository_1.videoRepository.findByVideoId(videoId);
                     res.json({
                         success: true,
-                        data: JSON.parse(cachedSummary),
-                        cached: true
+                        data: {
+                            ...savedSummary,
+                            title: video?.metadata?.title || videoId,
+                            channel: video?.metadata?.channel,
+                            cached: true,
+                            cacheSource: 'database'
+                        }
                     });
                     return;
                 }
+                else if (savedSummary) {
+                    logger_1.logger.info(`Found cached summary with empty content for ${videoId}, will regenerate`);
+                }
             }
-            catch (cacheError) {
-                logger_1.logger.warn('Redis cache error:', cacheError);
+            catch (dbError) {
+                logger_1.logger.warn('PostgreSQL summary lookup error:', dbError);
+                // Continue to generate if DB lookup fails
             }
-            const video = await Video_1.Video.findOne({ videoId });
+            // 2. Get video from PostgreSQL
+            const video = await videoRepository_1.videoRepository.findByVideoId(videoId);
             if (!video) {
                 res.status(404).json({
                     success: false,
@@ -243,37 +235,57 @@ class TranscriptController {
                 });
                 return;
             }
-            if (video.transcript.length === 0) {
+            // 3. Get transcript from PostgreSQL
+            const transcript = await videoRepository_1.videoRepository.getTranscriptByVideoId(videoId);
+            if (!transcript || transcript.length === 0) {
                 res.status(404).json({
                     success: false,
-                    message: 'No transcript available for this video'
+                    message: 'Transcript not ready. Please wait for transcript processing to complete.',
+                    status: 'transcript_pending'
                 });
                 return;
             }
-            // Generate summary
-            const fullText = video.transcript.map(segment => segment.text).join(' ');
-            const summary = this.generateTextSummary(fullText, length);
-            // Extract key topics
-            const keyTopics = this.extractKeyTopics(fullText);
-            // Get important timestamps
-            const keyMoments = this.findKeyMoments(video.transcript);
+            // 4. Generate with LLM (only if not in database)
+            logger_1.logger.info(`Generating AI summary for video: ${videoId} (${transcript.length} segments)`);
+            const startTime = Date.now();
+            const aiSummary = await summaryService_1.summaryService.generateComprehensiveSummary(transcript, video.metadata?.title || 'Educational Video', video.metadata?.channel);
+            const generationTimeMs = Date.now() - startTime;
+            // 5. SAVE TO POSTGRESQL (only if summary has actual content - don't cache failures!)
+            const hasValidSummary = aiSummary.overview && aiSummary.overview.length > 0 &&
+                aiSummary.keyPoints && aiSummary.keyPoints.length > 0;
+            if (hasValidSummary) {
+                try {
+                    await (0, videoRepository_1.saveSummary)({
+                        videoId,
+                        overview: aiSummary.overview,
+                        keyPoints: aiSummary.keyPoints,
+                        mainTopics: aiSummary.mainTopics,
+                        keyTimestamps: aiSummary.keyTimestamps,
+                        targetAudience: aiSummary.targetAudience,
+                        difficulty: aiSummary.difficulty,
+                        estimatedWatchTime: aiSummary.estimatedWatchTime,
+                        generationTimeMs
+                    });
+                }
+                catch (saveError) {
+                    logger_1.logger.warn('Failed to save summary to PostgreSQL:', saveError);
+                    // Continue anyway - we can return the generated summary
+                }
+            }
+            else {
+                logger_1.logger.warn(`Summary generation returned empty content for ${videoId} - NOT caching failure`);
+            }
             const summaryData = {
                 videoId,
-                summary,
-                keyTopics,
-                keyMoments,
-                originalLength: video.transcript.length,
-                summaryLength: summary.split(' ').length,
-                generatedAt: new Date()
+                title: video.metadata?.title,
+                channel: video.metadata?.channel,
+                ...aiSummary,
+                originalSegments: transcript.length,
+                generatedAt: new Date().toISOString(),
+                generationTimeMs,
+                cached: false
             };
-            // Cache the summary
-            try {
-                const redisClient = (0, redis_1.getRedisClient)();
-                await redisClient?.setEx(cacheKey, 7200, JSON.stringify(summaryData)); // Cache for 2 hours
-            }
-            catch (cacheError) {
-                logger_1.logger.warn('Redis cache set error:', cacheError);
-            }
+            logger_1.logger.info(`Summary generated in ${generationTimeMs}ms for ${videoId}`);
             res.json({
                 success: true,
                 data: summaryData
@@ -283,7 +295,302 @@ class TranscriptController {
             logger_1.logger.error('Error in generateSummary:', error);
             res.status(500).json({
                 success: false,
-                message: 'Internal server error'
+                message: 'Failed to generate summary. Please try again.'
+            });
+        }
+    }
+    /**
+     * Generate glossary from transcript
+     * CACHING STRATEGY:
+     * 1. Check PostgreSQL (permanent cache - shared across all users)
+     * 2. If not found, generate with LLM and save to PostgreSQL
+     */
+    async generateGlossary(req, res) {
+        try {
+            const errors = (0, express_validator_1.validationResult)(req);
+            if (!errors.isEmpty()) {
+                res.status(400).json({
+                    success: false,
+                    message: 'Validation errors',
+                    errors: errors.array()
+                });
+                return;
+            }
+            const { videoId } = req.params;
+            const forceRegenerate = req.query.regenerate === 'true';
+            // 1. CHECK POSTGRESQL FIRST (permanent cache - shared for all users)
+            // Skip cache if force regenerate is requested
+            if (!forceRegenerate) {
+                try {
+                    const savedGlossary = await (0, videoRepository_1.getGlossaryByVideoId)(videoId);
+                    // Only use cached glossary if it actually has terms (not a failed generation)
+                    if (savedGlossary && savedGlossary.totalTerms > 0) {
+                        logger_1.logger.info(`Returning cached glossary from PostgreSQL for ${videoId}`);
+                        // Get video metadata for response
+                        const video = await videoRepository_1.videoRepository.findByVideoId(videoId);
+                        res.json({
+                            success: true,
+                            data: {
+                                ...savedGlossary,
+                                title: video?.metadata?.title,
+                                channel: video?.metadata?.channel,
+                                cached: true,
+                                cacheSource: 'database'
+                            }
+                        });
+                        return;
+                    }
+                    else if (savedGlossary && savedGlossary.totalTerms === 0) {
+                        logger_1.logger.info(`Found cached glossary with 0 terms for ${videoId}, will regenerate`);
+                    }
+                }
+                catch (dbError) {
+                    logger_1.logger.warn('PostgreSQL glossary lookup error:', dbError);
+                    // Continue to generate if DB lookup fails
+                }
+            }
+            else {
+                logger_1.logger.info(`Force regenerating glossary for ${videoId}`);
+            }
+            // 2. Get video from PostgreSQL
+            const video = await videoRepository_1.videoRepository.findByVideoId(videoId);
+            if (!video) {
+                res.status(404).json({
+                    success: false,
+                    message: 'Video not found'
+                });
+                return;
+            }
+            // 3. Get transcript from PostgreSQL
+            const transcript = await videoRepository_1.videoRepository.getTranscriptByVideoId(videoId);
+            if (!transcript || transcript.length === 0) {
+                res.status(404).json({
+                    success: false,
+                    message: 'Transcript not ready. Please wait for transcript processing to complete.',
+                    status: 'transcript_pending'
+                });
+                return;
+            }
+            // 4. Generate with LLM (only if not in database)
+            logger_1.logger.info(`Generating AI glossary for video: ${videoId} (${transcript.length} segments)`);
+            const startTime = Date.now();
+            const glossary = await glossaryService_1.glossaryService.generateGlossary(transcript, videoId, video.metadata?.title || 'Educational Video');
+            const generationTimeMs = Date.now() - startTime;
+            // 5. SAVE TO POSTGRESQL (only if glossary has actual content - don't cache failures!)
+            if (glossary.totalTerms > 0) {
+                try {
+                    await (0, videoRepository_1.saveGlossary)({
+                        videoId,
+                        terms: glossary.terms,
+                        categories: glossary.categories,
+                        totalTerms: glossary.totalTerms,
+                        generationTimeMs
+                    });
+                }
+                catch (saveError) {
+                    logger_1.logger.warn('Failed to save glossary to PostgreSQL:', saveError);
+                    // Continue anyway - we can return the generated glossary
+                }
+            }
+            else {
+                logger_1.logger.warn(`Glossary generation returned 0 terms for ${videoId} - NOT caching failure`);
+            }
+            const glossaryData = {
+                ...glossary,
+                title: video.metadata?.title,
+                channel: video.metadata?.channel,
+                generationTimeMs,
+                cached: false
+            };
+            logger_1.logger.info(`Glossary generated in ${generationTimeMs}ms: ${glossary.totalTerms} terms`);
+            res.json({
+                success: true,
+                data: glossaryData
+            });
+        }
+        catch (error) {
+            logger_1.logger.error('Error in generateGlossary:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to generate glossary. Please try again.'
+            });
+        }
+    }
+    /**
+     * Generate flashcards from transcript
+     */
+    async generateFlashcards(req, res) {
+        try {
+            const errors = (0, express_validator_1.validationResult)(req);
+            if (!errors.isEmpty()) {
+                res.status(400).json({
+                    success: false,
+                    message: 'Validation errors',
+                    errors: errors.array()
+                });
+                return;
+            }
+            const { videoId } = req.params;
+            const cardCount = parseInt(req.query.count) || 10;
+            // Limit card count to reasonable range
+            const limitedCount = Math.min(Math.max(cardCount, 5), 20);
+            // Get video from PostgreSQL
+            const video = await videoRepository_1.videoRepository.findByVideoId(videoId);
+            if (!video) {
+                res.status(404).json({
+                    success: false,
+                    message: 'Video not found'
+                });
+                return;
+            }
+            // Get transcript from PostgreSQL
+            const transcript = await videoRepository_1.videoRepository.getTranscriptByVideoId(videoId);
+            if (!transcript || transcript.length === 0) {
+                res.status(404).json({
+                    success: false,
+                    message: 'Transcript not ready. Please wait for transcript processing to complete.',
+                    status: 'transcript_pending'
+                });
+                return;
+            }
+            // Generate flashcards with LLM
+            logger_1.logger.info(`Generating flashcards for video: ${videoId} (${limitedCount} cards)`);
+            const startTime = Date.now();
+            const flashcards = await flashcardService_1.flashcardService.generateFlashcards(transcript, videoId, video.metadata?.title || 'Educational Video', limitedCount);
+            const generationTimeMs = Date.now() - startTime;
+            const flashcardData = {
+                ...flashcards,
+                generationTimeMs,
+                cached: false
+            };
+            logger_1.logger.info(`Flashcards generated in ${generationTimeMs}ms: ${flashcards.totalCards} cards`);
+            res.json({
+                success: true,
+                data: flashcardData
+            });
+        }
+        catch (error) {
+            logger_1.logger.error('Error in generateFlashcards:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to generate flashcards. Please try again.'
+            });
+        }
+    }
+    /**
+     * Generate quiz from transcript with PostgreSQL caching
+     * CACHING STRATEGY:
+     * 1. Check PostgreSQL (permanent cache - shared across all users)
+     * 2. If not found, generate with LLM and save to PostgreSQL
+     */
+    async generateQuiz(req, res) {
+        try {
+            const errors = (0, express_validator_1.validationResult)(req);
+            if (!errors.isEmpty()) {
+                res.status(400).json({
+                    success: false,
+                    message: 'Validation errors',
+                    errors: errors.array()
+                });
+                return;
+            }
+            const { videoId } = req.params;
+            const questionCount = parseInt(req.query.count) || 10;
+            // Limit question count to reasonable range
+            const limitedCount = Math.min(Math.max(questionCount, 5), 20);
+            // 1. CHECK POSTGRESQL FIRST (permanent cache - shared for all users)
+            try {
+                const savedQuiz = await (0, videoRepository_1.getQuizByVideoId)(videoId);
+                // Only use cached quiz if it has actual content (not a failed generation)
+                const hasValidContent = savedQuiz &&
+                    savedQuiz.questions && savedQuiz.questions.length > 0 &&
+                    savedQuiz.totalQuestions > 0;
+                if (hasValidContent) {
+                    logger_1.logger.info(`Returning cached quiz from PostgreSQL for ${videoId}`);
+                    // Get video metadata for response
+                    const video = await videoRepository_1.videoRepository.findByVideoId(videoId);
+                    res.json({
+                        success: true,
+                        data: {
+                            ...savedQuiz,
+                            title: video?.metadata?.title || videoId,
+                            channel: video?.metadata?.channel,
+                            cached: true,
+                            cacheSource: 'database'
+                        }
+                    });
+                    return;
+                }
+                else if (savedQuiz) {
+                    logger_1.logger.info(`Found cached quiz with empty content for ${videoId}, will regenerate`);
+                }
+            }
+            catch (dbError) {
+                logger_1.logger.warn('PostgreSQL quiz lookup error:', dbError);
+                // Continue to generate if DB lookup fails
+            }
+            // 2. Get video from PostgreSQL
+            const video = await videoRepository_1.videoRepository.findByVideoId(videoId);
+            if (!video) {
+                res.status(404).json({
+                    success: false,
+                    message: 'Video not found'
+                });
+                return;
+            }
+            // 3. Get transcript from PostgreSQL (as requested by user)
+            const transcript = await videoRepository_1.videoRepository.getTranscriptByVideoId(videoId);
+            if (!transcript || transcript.length === 0) {
+                res.status(404).json({
+                    success: false,
+                    message: 'Transcript not ready. Please wait for transcript processing to complete.',
+                    status: 'transcript_pending'
+                });
+                return;
+            }
+            // 4. Generate quiz with LLM (optimized - only if not in database)
+            logger_1.logger.info(`Generating quiz for video: ${videoId} (${limitedCount} questions from ${transcript.length} segments)`);
+            const startTime = Date.now();
+            const quiz = await quizService_1.quizService.generateQuiz(transcript, videoId, video.metadata?.title || 'Educational Video', limitedCount);
+            const generationTimeMs = Date.now() - startTime;
+            // 5. SAVE TO POSTGRESQL (only if quiz has actual content - don't cache failures!)
+            const hasValidQuiz = quiz.questions && quiz.questions.length > 0 &&
+                quiz.totalQuestions > 0;
+            if (hasValidQuiz) {
+                try {
+                    await (0, videoRepository_1.saveQuiz)({
+                        videoId,
+                        questions: quiz.questions,
+                        totalQuestions: quiz.totalQuestions,
+                        categories: quiz.categories,
+                        generationTimeMs
+                    });
+                    logger_1.logger.info(`Saved quiz to PostgreSQL for ${videoId}: ${quiz.totalQuestions} questions`);
+                }
+                catch (saveError) {
+                    logger_1.logger.warn('Failed to save quiz to PostgreSQL:', saveError);
+                    // Continue anyway - we can return the generated quiz
+                }
+            }
+            else {
+                logger_1.logger.warn(`Quiz generation returned empty content for ${videoId} - NOT caching failure`);
+            }
+            const quizData = {
+                ...quiz,
+                generationTimeMs,
+                cached: false
+            };
+            logger_1.logger.info(`Quiz generated in ${generationTimeMs}ms: ${quiz.totalQuestions} questions`);
+            res.json({
+                success: true,
+                data: quizData
+            });
+        }
+        catch (error) {
+            logger_1.logger.error('Error in generateQuiz:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to generate quiz. Please try again.'
             });
         }
     }
@@ -351,139 +658,6 @@ class TranscriptController {
             }
         }
         return score;
-    }
-    /**
-     * Generate text summary (simple extractive summarization)
-     */
-    generateTextSummary(text, length) {
-        const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
-        let targetLength;
-        switch (length) {
-            case 'short':
-                targetLength = Math.min(3, Math.floor(sentences.length * 0.1));
-                break;
-            case 'long':
-                targetLength = Math.min(10, Math.floor(sentences.length * 0.3));
-                break;
-            default: // medium
-                targetLength = Math.min(6, Math.floor(sentences.length * 0.2));
-        }
-        // Score sentences based on word frequency and position
-        const wordFreq = this.calculateWordFrequency(text);
-        const scoredSentences = sentences.map((sentence, index) => ({
-            sentence: sentence.trim(),
-            score: this.scoreSentence(sentence, wordFreq, index, sentences.length),
-            index
-        }));
-        // Select top sentences
-        const selectedSentences = scoredSentences
-            .sort((a, b) => b.score - a.score)
-            .slice(0, targetLength)
-            .sort((a, b) => a.index - b.index)
-            .map(item => item.sentence);
-        return selectedSentences.join('. ') + '.';
-    }
-    /**
-     * Calculate word frequency
-     */
-    calculateWordFrequency(text) {
-        const words = text.toLowerCase()
-            .replace(/[^\w\s]/g, ' ')
-            .split(/\s+/)
-            .filter(word => word.length > 3);
-        const freq = {};
-        words.forEach(word => {
-            freq[word] = (freq[word] || 0) + 1;
-        });
-        return freq;
-    }
-    /**
-     * Score sentence for summary
-     */
-    scoreSentence(sentence, wordFreq, position, totalSentences) {
-        const words = sentence.toLowerCase()
-            .replace(/[^\w\s]/g, ' ')
-            .split(/\s+/)
-            .filter(word => word.length > 3);
-        let score = 0;
-        // Word frequency score
-        words.forEach(word => {
-            score += wordFreq[word] || 0;
-        });
-        // Position bonus (beginning and end are often important)
-        if (position < totalSentences * 0.1 || position > totalSentences * 0.9) {
-            score *= 1.2;
-        }
-        // Length penalty for very short or very long sentences
-        if (sentence.length < 20 || sentence.length > 200) {
-            score *= 0.8;
-        }
-        return score / words.length; // Normalize by sentence length
-    }
-    /**
-     * Extract key topics from text
-     */
-    extractKeyTopics(text) {
-        const wordFreq = this.calculateWordFrequency(text);
-        // Get most frequent meaningful words
-        return Object.entries(wordFreq)
-            .filter(([word, freq]) => freq > 2 && word.length > 4)
-            .sort(([, a], [, b]) => b - a)
-            .slice(0, 10)
-            .map(([word]) => word);
-    }
-    /**
-     * Find key moments in transcript
-     */
-    findKeyMoments(transcript) {
-        const keyMoments = [];
-        // Look for introduction patterns
-        const introPatterns = ['welcome', 'hello', 'today we', 'in this video', 'let\'s start'];
-        const conclusionPatterns = ['in conclusion', 'to summarize', 'that\'s all', 'thank you', 'see you'];
-        const transitionPatterns = ['now let\'s', 'next we', 'moving on', 'another important'];
-        transcript.forEach((segment, index) => {
-            const text = segment.text.toLowerCase();
-            // Introduction
-            if (index < transcript.length * 0.1 && introPatterns.some(pattern => text.includes(pattern))) {
-                keyMoments.push({
-                    timestamp: this.formatTimestamp(segment.start),
-                    text: segment.text,
-                    reason: 'Introduction'
-                });
-            }
-            // Conclusion
-            if (index > transcript.length * 0.8 && conclusionPatterns.some(pattern => text.includes(pattern))) {
-                keyMoments.push({
-                    timestamp: this.formatTimestamp(segment.start),
-                    text: segment.text,
-                    reason: 'Conclusion'
-                });
-            }
-            // Transitions
-            if (transitionPatterns.some(pattern => text.includes(pattern))) {
-                keyMoments.push({
-                    timestamp: this.formatTimestamp(segment.start),
-                    text: segment.text,
-                    reason: 'Topic Transition'
-                });
-            }
-        });
-        return keyMoments.slice(0, 5); // Limit to 5 key moments
-    }
-    /**
-     * Helper methods (similar to other controllers)
-     */
-    determineSubject(title, description) {
-        // Implementation similar to other controllers
-        return 'Other';
-    }
-    determineDifficulty(title, description) {
-        // Implementation similar to other controllers
-        return 'intermediate';
-    }
-    calculateQualityScore(metadata, transcript) {
-        // Implementation similar to other controllers
-        return 5;
     }
 }
 exports.TranscriptController = TranscriptController;

@@ -1,498 +1,398 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Upload, Users, BarChart3, BookOpen, Play, Eye, TrendingUp, Plus, Edit, Download } from "lucide-react"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { 
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Upload, BookOpen, Eye, FileText, HelpCircle, Loader2, AlertCircle, Download, MoreVertical } from "lucide-react"
 import Link from "next/link"
 import { AuthGuard } from "@/components/auth-guard"
+import { Navigation } from "@/components/navigation"
+import { apiService } from "@/lib/api"
+import { useToast } from "@/hooks/use-toast"
 
-const mockTeacherData = {
-  name: "Dr. Sarah Chen",
-  email: "sarah.chen@university.edu",
-  avatar: "/placeholder.svg?height=40&width=40&text=SC",
-  totalStudents: 1247,
-  totalCourses: 12,
-  totalViews: 45230,
-  avgRating: 4.8,
+interface TeacherStats {
+  total_lectures: string;
+  completed_lectures: string;
+  processing_lectures: string;
+  failed_lectures: string;
+  total_views: string;
+  total_notes: string;
+  total_question_banks: string;
 }
 
-const mockCourses = [
-  {
-    id: "1",
-    title: "Introduction to Machine Learning Fundamentals",
-    students: 342,
-    views: 12450,
-    rating: 4.9,
-    status: "published",
-    lastUpdated: "2 days ago",
-    thumbnail: "/placeholder.svg?height=100&width=150&text=ML+Course",
-    duration: "12h 30m",
-    lessons: 24,
-  },
-  {
-    id: "2",
-    title: "Advanced Neural Networks and Deep Learning",
-    students: 189,
-    views: 8920,
-    rating: 4.7,
-    status: "published",
-    lastUpdated: "1 week ago",
-    thumbnail: "/placeholder.svg?height=100&width=150&text=Neural+Networks",
-    duration: "18h 45m",
-    lessons: 32,
-  },
-  {
-    id: "3",
-    title: "Data Science with Python - Complete Guide",
-    students: 0,
-    views: 0,
-    rating: 0,
-    status: "draft",
-    lastUpdated: "3 days ago",
-    thumbnail: "/placeholder.svg?height=100&width=150&text=Python+DS",
-    duration: "15h 20m",
-    lessons: 28,
-  },
-]
-
-const mockRecentActivity = [
-  {
-    id: "1",
-    type: "new_enrollment",
-    message: "25 new students enrolled in ML Fundamentals",
-    time: "2 hours ago",
-  },
-  {
-    id: "2",
-    type: "question",
-    message: "New Q&A question in Neural Networks course",
-    time: "4 hours ago",
-  },
-  {
-    id: "3",
-    type: "review",
-    message: "New 5-star review on ML Fundamentals",
-    time: "1 day ago",
-  },
-]
-
-const mockAnalytics = {
-  weeklyViews: [120, 150, 180, 200, 170, 190, 220],
-  enrollmentTrend: [10, 15, 12, 18, 25, 22, 30],
-  completionRates: {
-    "ML Fundamentals": 78,
-    "Neural Networks": 65,
-    "Python DS": 0,
-  },
+interface Lecture {
+  id: number;
+  title: string;
+  description: string;
+  status: 'processing' | 'completed' | 'failed' | 'draft';
+  subject: string;
+  difficulty: string;
+  view_count: number;
+  duration: string;
+  created_at: string;
+  notes_count: string;
+  question_banks_count: string;
 }
 
 export default function TeacherDashboardPage() {
-  const [activeTab, setActiveTab] = useState("overview")
+  const [stats, setStats] = useState<TeacherStats | null>(null)
+  const [lectures, setLectures] = useState<Lecture[]>([])
+  const [loading, setLoading] = useState(true)
+  const { toast } = useToast()
+  const [userData, setUserData] = useState<any>(null)
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem("learnx_user")
+    if (storedUser) {
+      try {
+        setUserData(JSON.parse(storedUser))
+      } catch (e) {
+        console.error('Failed to parse user data:', e)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true)
+        
+        const [statsResult, lecturesResult] = await Promise.all([
+          apiService.getTeacherStats(),
+          apiService.getTeacherLectures()
+        ])
+
+        if (statsResult.success && statsResult.data) {
+          setStats(statsResult.data.stats)
+        }
+
+        if (lecturesResult.success && lecturesResult.data) {
+          setLectures(lecturesResult.data.lectures)
+        }
+      } catch (error: any) {
+        console.error('Error fetching teacher data:', error)
+        toast({
+          title: "Error",
+          description: error.message || "Failed to load teacher data",
+          variant: "destructive"
+        })
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [toast])
+
+  const handleDownloadNotes = async (lectureId: number, type: 'detailed' | 'quick', title: string) => {
+    try {
+      const blob = await apiService.downloadLectureNotes(lectureId, type)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${title}_${type}_notes.md`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      toast({
+        title: "Download Started",
+        description: `Downloading ${type} notes for ${title}`,
+      })
+    } catch (error: any) {
+      console.error('Download error:', error)
+      toast({
+        title: "Download Failed",
+        description: error.message || "Failed to download notes",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleDownloadQuestions = async (lectureId: number, title: string) => {
+    try {
+      const blob = await apiService.downloadLectureQuestions(lectureId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${title}_questions.md`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      toast({
+        title: "Download Started",
+        description: `Downloading questions for ${title}`,
+      })
+    } catch (error: any) {
+      console.error('Download error:', error)
+      toast({
+        title: "Download Failed",
+        description: error.message || "Failed to download questions",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const getInitials = (firstName?: string, lastName?: string, email?: string) => {
+    if (firstName && lastName) {
+      return `${firstName[0]}${lastName[0]}`.toUpperCase()
+    }
+    if (email) {
+      return email[0].toUpperCase()
+    }
+    return 'T'
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed': return 'default'
+      case 'processing': return 'secondary'
+      case 'failed': return 'destructive'
+      case 'draft': return 'outline'
+      default: return 'outline'
+    }
+  }
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  if (loading) {
+    return (
+      <AuthGuard>
+        <div className="min-h-screen bg-background flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
+            <p className="text-muted-foreground">Loading dashboard...</p>
+          </div>
+        </div>
+      </AuthGuard>
+    )
+  }
 
   return (
     <AuthGuard>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background relative">
+        <div className="absolute inset-0 mesh-gradient pointer-events-none" />
+        <div className="relative z-10">
+        <Navigation />
+        
         {/* Header */}
-        <div className="border-b border-border bg-card/50 backdrop-blur-sm">
+        <div className="border-b border-border/50 glass">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
-                <Avatar className="w-12 h-12">
-                  <AvatarImage src={mockTeacherData.avatar || "/placeholder.svg"} alt={mockTeacherData.name} />
-                  <AvatarFallback>SC</AvatarFallback>
+                <Avatar className="w-12 h-12 border-2 border-primary/20 shadow-lg">
+                  <AvatarFallback className="bg-gradient-to-br from-primary to-chart-5 text-white font-bold">
+                    {getInitials(userData?.firstName, userData?.lastName, userData?.email)}
+                  </AvatarFallback>
                 </Avatar>
                 <div>
                   <h1 className="text-2xl font-black font-montserrat">
-                    Welcome, {mockTeacherData.name.split(" ")[1]}!
+                    Welcome, <span className="gradient-text">{userData?.firstName || 'Teacher'}</span>!
                   </h1>
-                  <p className="text-muted-foreground font-open-sans">Manage your courses and track student progress</p>
+                  <p className="text-muted-foreground font-open-sans">Manage your lectures and AI-generated content</p>
                 </div>
               </div>
-              <div className="flex items-center space-x-4">
-                <Button asChild>
-                  <Link href="/teacher/upload">
-                    <Upload className="w-4 h-4 mr-2" />
-                    Upload Content
-                  </Link>
-                </Button>
-                <Button variant="outline" asChild>
-                  <Link href="/teacher/create-course">
-                    <Plus className="w-4 h-4 mr-2" />
-                    New Course
-                  </Link>
-                </Button>
-              </div>
+              <Button asChild size="lg" className="font-semibold bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 shadow-md shadow-primary/20">
+                <Link href="/teacher/upload">
+                  <Upload className="w-4 h-4 mr-2" />
+                  Upload Lecture
+                </Link>
+              </Button>
             </div>
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="overview" className="font-open-sans">
-                Overview
-              </TabsTrigger>
-              <TabsTrigger value="courses" className="font-open-sans">
-                My Courses
-              </TabsTrigger>
-              <TabsTrigger value="analytics" className="font-open-sans">
-                Analytics
-              </TabsTrigger>
-              <TabsTrigger value="students" className="font-open-sans">
-                Students
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="overview" className="space-y-6">
-              {/* Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium font-montserrat">Total Students</CardTitle>
-                    <Users className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold font-montserrat">{mockTeacherData.totalStudents}</div>
-                    <p className="text-xs text-muted-foreground font-open-sans">+12% from last month</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium font-montserrat">Total Courses</CardTitle>
-                    <BookOpen className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold font-montserrat">{mockTeacherData.totalCourses}</div>
-                    <p className="text-xs text-muted-foreground font-open-sans">3 published this month</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium font-montserrat">Total Views</CardTitle>
-                    <Eye className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold font-montserrat">
-                      {mockTeacherData.totalViews.toLocaleString()}
-                    </div>
-                    <p className="text-xs text-muted-foreground font-open-sans">+8% from last week</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium font-montserrat">Average Rating</CardTitle>
-                    <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold font-montserrat">{mockTeacherData.avgRating}</div>
-                    <p className="text-xs text-muted-foreground font-open-sans">Across all courses</p>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Recent Courses */}
-                <div className="lg:col-span-2">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="font-montserrat">Recent Courses</CardTitle>
-                      <CardDescription className="font-open-sans">Your latest course activity</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      {mockCourses.slice(0, 3).map((course) => (
-                        <div
-                          key={course.id}
-                          className="flex items-center space-x-4 p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors"
-                        >
-                          <img
-                            src={course.thumbnail || "/placeholder.svg"}
-                            alt={course.title}
-                            className="w-16 h-12 object-cover rounded"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-medium font-montserrat truncate">{course.title}</h4>
-                            <div className="flex items-center space-x-4 text-sm text-muted-foreground font-open-sans">
-                              <span>{course.students} students</span>
-                              <span>{course.views} views</span>
-                              <Badge variant={course.status === "published" ? "default" : "secondary"}>
-                                {course.status}
-                              </Badge>
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <Button size="sm" variant="outline" asChild>
-                              <Link href={`/teacher/courses/${course.id}`}>
-                                <Edit className="w-3 h-3 mr-1" />
-                                Edit
-                              </Link>
-                            </Button>
-                            <Button size="sm" asChild>
-                              <Link href={`/learn/${course.id}`}>
-                                <Eye className="w-3 h-3 mr-1" />
-                                View
-                              </Link>
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-slide-up">
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium font-montserrat">Total Lectures</CardTitle>
+                <div className="stat-icon-purple"><BookOpen className="h-4 w-4" /></div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold font-montserrat">
+                  {stats?.total_lectures || 0}
                 </div>
+                <p className="text-xs text-muted-foreground font-open-sans">
+                  {stats?.completed_lectures || 0} completed
+                </p>
+              </CardContent>
+            </Card>
 
-                {/* Sidebar */}
-                <div className="space-y-6">
-                  {/* Recent Activity */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="font-montserrat">Recent Activity</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      {mockRecentActivity.map((activity) => (
-                        <div key={activity.id} className="flex items-start space-x-3">
-                          <div className="w-2 h-2 bg-accent rounded-full mt-2"></div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium font-open-sans">{activity.message}</p>
-                            <p className="text-xs text-muted-foreground font-open-sans">{activity.time}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-
-                  {/* Quick Actions */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="font-montserrat">Quick Actions</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      <Button className="w-full justify-start bg-transparent" variant="outline" asChild>
-                        <Link href="/teacher/upload">
-                          <Upload className="w-4 h-4 mr-2" />
-                          Upload Video
-                        </Link>
-                      </Button>
-                      <Button className="w-full justify-start bg-transparent" variant="outline" asChild>
-                        <Link href="/teacher/analytics">
-                          <BarChart3 className="w-4 h-4 mr-2" />
-                          View Analytics
-                        </Link>
-                      </Button>
-                      <Button className="w-full justify-start bg-transparent" variant="outline" asChild>
-                        <Link href="/teacher/students">
-                          <Users className="w-4 h-4 mr-2" />
-                          Manage Students
-                        </Link>
-                      </Button>
-                    </CardContent>
-                  </Card>
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium font-montserrat">Notes Generated</CardTitle>
+                <div className="stat-icon-emerald"><FileText className="h-4 w-4" /></div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold font-montserrat">
+                  {stats?.total_notes || 0}
                 </div>
-              </div>
-            </TabsContent>
+                <p className="text-xs text-muted-foreground font-open-sans">
+                  AI-generated summaries
+                </p>
+              </CardContent>
+            </Card>
 
-            <TabsContent value="courses" className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold font-montserrat">My Courses</h2>
-                <div className="flex items-center space-x-2">
-                  <Button variant="outline" asChild>
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium font-montserrat">Question Banks</CardTitle>
+                <div className="stat-icon-amber"><HelpCircle className="h-4 w-4" /></div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold font-montserrat">
+                  {stats?.total_question_banks || 0}
+                </div>
+                <p className="text-xs text-muted-foreground font-open-sans">
+                  AI-generated quizzes
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Lectures List */}
+          <Card className="border-border/50 bg-card/80 backdrop-blur-sm animate-slide-up stagger-1">
+            <CardHeader>
+              <CardTitle className="font-montserrat">My Lectures</CardTitle>
+              <CardDescription className="font-open-sans">
+                All your uploaded lectures with AI-generated content
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {lectures.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="w-16 h-16 bg-gradient-to-br from-primary/20 to-chart-5/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <BookOpen className="w-8 h-8 text-primary" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">No lectures yet</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Upload your first lecture to get started with AI-powered notes and questions
+                  </p>
+                  <Button asChild className="font-semibold bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 shadow-md shadow-primary/20">
                     <Link href="/teacher/upload">
                       <Upload className="w-4 h-4 mr-2" />
-                      Upload Content
-                    </Link>
-                  </Button>
-                  <Button asChild>
-                    <Link href="/teacher/create-course">
-                      <Plus className="w-4 h-4 mr-2" />
-                      New Course
+                      Upload Lecture
                     </Link>
                   </Button>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {mockCourses.map((course) => (
-                  <Card key={course.id} className="hover:shadow-lg transition-shadow">
-                    <div className="relative">
-                      <img
-                        src={course.thumbnail || "/placeholder.svg"}
-                        alt={course.title}
-                        className="w-full h-40 object-cover rounded-t-lg"
-                      />
-                      <div className="absolute top-2 right-2">
-                        <Badge variant={course.status === "published" ? "default" : "secondary"}>{course.status}</Badge>
-                      </div>
-                    </div>
-                    <CardHeader>
-                      <CardTitle className="font-montserrat line-clamp-2">{course.title}</CardTitle>
-                      <CardDescription className="font-open-sans">
-                        {course.lessons} lessons • {course.duration}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="flex items-center font-open-sans">
-                            <Users className="w-3 h-3 mr-1" />
-                            {course.students} students
-                          </span>
-                          <span className="flex items-center font-open-sans">
+              ) : (
+                <div className="space-y-3">
+                  {lectures.map((lecture) => (
+                    <div
+                      key={lecture.id}
+                      className="flex items-center justify-between p-4 border border-border/50 rounded-xl hover:bg-muted/30 transition-colors"
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3">
+                          <h4 className="font-medium font-montserrat">{lecture.title}</h4>
+                          <Badge variant={getStatusColor(lecture.status)}>
+                            {lecture.status}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground font-open-sans">
+                          <span>{lecture.subject}</span>
+                          <span>•</span>
+                          <span>{lecture.difficulty}</span>
+                          <span>•</span>
+                          <span>{lecture.duration || 'N/A'}</span>
+                          <span>•</span>
+                          <span>{formatDate(lecture.created_at)}</span>
+                        </div>
+                        <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                          <span className="flex items-center">
                             <Eye className="w-3 h-3 mr-1" />
-                            {course.views} views
+                            {lecture.view_count} views
+                          </span>
+                          <span className="flex items-center">
+                            <FileText className="w-3 h-3 mr-1" />
+                            {lecture.notes_count} notes
+                          </span>
+                          <span className="flex items-center">
+                            <HelpCircle className="w-3 h-3 mr-1" />
+                            {lecture.question_banks_count} question banks
                           </span>
                         </div>
-                        {course.rating > 0 && (
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="font-open-sans">Rating: {course.rating}/5</span>
-                            <span className="text-muted-foreground font-open-sans">Updated {course.lastUpdated}</span>
-                          </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {lecture.status === 'completed' && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="outline" size="sm" className="border-border/50">
+                                <Download className="w-4 h-4 mr-2" />
+                                Download
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="border-border/50 bg-card/95 backdrop-blur-xl">
+                              <DropdownMenuItem 
+                                onClick={() => handleDownloadNotes(lecture.id, 'detailed', lecture.title)}
+                                disabled={parseInt(lecture.notes_count) === 0}
+                              >
+                                <FileText className="w-4 h-4 mr-2" />
+                                Detailed Notes
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => handleDownloadNotes(lecture.id, 'quick', lecture.title)}
+                                disabled={parseInt(lecture.notes_count) === 0}
+                              >
+                                <FileText className="w-4 h-4 mr-2" />
+                                Quick Notes
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => handleDownloadQuestions(lecture.id, lecture.title)}
+                                disabled={parseInt(lecture.question_banks_count) === 0}
+                              >
+                                <HelpCircle className="w-4 h-4 mr-2" />
+                                Question Bank
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
-                        <div className="flex items-center space-x-2">
-                          <Button size="sm" variant="outline" className="flex-1 bg-transparent" asChild>
-                            <Link href={`/teacher/courses/${course.id}`}>
-                              <Edit className="w-3 h-3 mr-1" />
-                              Edit
-                            </Link>
-                          </Button>
-                          <Button size="sm" className="flex-1" asChild>
-                            <Link href={`/learn/${course.id}`}>
-                              <Play className="w-3 h-3 mr-1" />
-                              Preview
-                            </Link>
-                          </Button>
-                        </div>
+                        <Button variant="outline" size="sm" asChild className="border-border/50">
+                          <Link href={`/teacher/lectures/${lecture.id}`}>
+                            View Details
+                          </Link>
+                        </Button>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="analytics" className="space-y-6">
-              <h2 className="text-2xl font-bold font-montserrat">Course Analytics</h2>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="font-montserrat">Weekly Views</CardTitle>
-                    <CardDescription className="font-open-sans">Views across all courses</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold font-montserrat mb-2">
-                      {mockAnalytics.weeklyViews.reduce((a, b) => a + b, 0)}
-                    </div>
-                    <p className="text-sm text-muted-foreground font-open-sans">This week</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="font-montserrat">New Enrollments</CardTitle>
-                    <CardDescription className="font-open-sans">Students enrolled this week</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold font-montserrat mb-2">
-                      {mockAnalytics.enrollmentTrend.reduce((a, b) => a + b, 0)}
-                    </div>
-                    <p className="text-sm text-muted-foreground font-open-sans">+15% from last week</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="font-montserrat">Avg. Completion Rate</CardTitle>
-                    <CardDescription className="font-open-sans">Across published courses</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold font-montserrat mb-2">72%</div>
-                    <p className="text-sm text-muted-foreground font-open-sans">Above platform average</p>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Course Performance */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="font-montserrat">Course Performance</CardTitle>
-                  <CardDescription className="font-open-sans">Completion rates by course</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {Object.entries(mockAnalytics.completionRates).map(([course, rate]) => (
-                    <div key={course} className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="font-open-sans">{course}</span>
-                        <span className="font-open-sans">{rate}%</span>
-                      </div>
-                      <Progress value={rate} />
                     </div>
                   ))}
-                </CardContent>
-              </Card>
-            </TabsContent>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-            <TabsContent value="students" className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold font-montserrat">Student Management</h2>
-                <Button variant="outline">
-                  <Download className="w-4 h-4 mr-2" />
-                  Export Data
-                </Button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="font-montserrat">Active Students</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-bold font-montserrat mb-2">892</div>
-                    <p className="text-sm text-muted-foreground font-open-sans">Currently enrolled</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="font-montserrat">Completion Rate</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-bold font-montserrat mb-2">68%</div>
-                    <p className="text-sm text-muted-foreground font-open-sans">Average across courses</p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="font-montserrat">Engagement Score</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-bold font-montserrat mb-2">8.4/10</div>
-                    <p className="text-sm text-muted-foreground font-open-sans">Based on activity</p>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Student Activity */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="font-montserrat">Recent Student Activity</CardTitle>
-                  <CardDescription className="font-open-sans">Latest interactions and progress</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-center py-12 text-muted-foreground font-open-sans">
-                    <Users className="w-12 h-12 mx-auto mb-4" />
-                    <p>Student activity dashboard would be implemented here</p>
-                    <p className="text-sm mt-2">Track individual progress, Q&A interactions, and engagement metrics</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+          {/* Processing Status */}
+          {stats && parseInt(stats.processing_lectures) > 0 && (
+            <Card className="border-yellow-500/50 bg-yellow-50/80 dark:bg-yellow-950/20 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="font-montserrat flex items-center">
+                  <AlertCircle className="w-5 h-5 mr-2 text-yellow-600" />
+                  Processing in Progress
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm font-open-sans">
+                  You have {stats.processing_lectures} lecture(s) currently being processed. 
+                  Transcription and AI content generation may take a few minutes.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
         </div>
       </div>
     </AuthGuard>

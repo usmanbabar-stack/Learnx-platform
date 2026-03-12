@@ -245,6 +245,106 @@ class UserProgressRepository {
         }
     }
     /**
+     * Get weekly learning stats (hours per day for past 7 days)
+     */
+    async getWeeklyStats(userId) {
+        try {
+            const query = `
+        WITH date_series AS (
+          SELECT generate_series(
+            CURRENT_DATE - INTERVAL '6 days',
+            CURRENT_DATE,
+            '1 day'::interval
+          )::date AS date
+        ),
+        daily_hours AS (
+          SELECT 
+            DATE(last_watched) as watch_date,
+            SUM(progress_time) / 3600.0 as hours
+          FROM user_progress
+          WHERE user_id = $1 
+            AND last_watched >= CURRENT_DATE - INTERVAL '6 days'
+          GROUP BY DATE(last_watched)
+        )
+        SELECT 
+          TO_CHAR(ds.date, 'Dy') as day,
+          ds.date::text as date,
+          COALESCE(dh.hours, 0) as hours
+        FROM date_series ds
+        LEFT JOIN daily_hours dh ON ds.date = dh.watch_date
+        ORDER BY ds.date ASC
+      `;
+            const result = await this.pool.query(query, [userId]);
+            return result.rows.map(row => ({
+                day: row.day,
+                date: row.date,
+                hours: parseFloat(row.hours) || 0
+            }));
+        }
+        catch (error) {
+            logger_1.logger.error(`Failed to get weekly stats for user ${userId}:`, error);
+            // Return empty week with zeros
+            const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            const today = new Date();
+            return days.map((day, i) => {
+                const d = new Date(today);
+                d.setDate(d.getDate() - (6 - i));
+                return { day, date: d.toISOString().split('T')[0], hours: 0 };
+            });
+        }
+    }
+    /**
+     * Get learning patterns (hours watched by time of day)
+     */
+    async getLearningPatterns(userId) {
+        try {
+            // This requires watch_history table with timestamps
+            // For now, calculate from last_watched distribution
+            const query = `
+        SELECT 
+          EXTRACT(HOUR FROM last_watched) as hour,
+          COUNT(*) as watch_count,
+          SUM(progress_time) / 60.0 as total_minutes
+        FROM user_progress
+        WHERE user_id = $1 AND progress_time > 0
+        GROUP BY EXTRACT(HOUR FROM last_watched)
+        ORDER BY hour
+      `;
+            const result = await this.pool.query(query, [userId]);
+            // Create 24-hour distribution, group into 6 time slots
+            const hourlyData = new Map();
+            result.rows.forEach(row => {
+                hourlyData.set(parseInt(row.hour), parseFloat(row.total_minutes) || 0);
+            });
+            const timeSlots = [
+                { hour: '6 AM', range: [5, 8] },
+                { hour: '9 AM', range: [9, 11] },
+                { hour: '12 PM', range: [12, 14] },
+                { hour: '3 PM', range: [15, 17] },
+                { hour: '6 PM', range: [18, 20] },
+                { hour: '9 PM', range: [21, 23] },
+            ];
+            return timeSlots.map(slot => {
+                let total = 0;
+                for (let h = slot.range[0]; h <= slot.range[1]; h++) {
+                    total += hourlyData.get(h) || 0;
+                }
+                return { hour: slot.hour, avgMinutes: Math.round(total) };
+            });
+        }
+        catch (error) {
+            logger_1.logger.error(`Failed to get learning patterns for user ${userId}:`, error);
+            return [
+                { hour: '6 AM', avgMinutes: 0 },
+                { hour: '9 AM', avgMinutes: 0 },
+                { hour: '12 PM', avgMinutes: 0 },
+                { hour: '3 PM', avgMinutes: 0 },
+                { hour: '6 PM', avgMinutes: 0 },
+                { hour: '9 PM', avgMinutes: 0 },
+            ];
+        }
+    }
+    /**
      * Mark video as completed manually
      */
     async markCompleted(userId, videoId) {

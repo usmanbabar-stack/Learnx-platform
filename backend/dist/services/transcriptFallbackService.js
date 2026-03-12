@@ -7,126 +7,229 @@ exports.fetchTranscriptViaWatchPage = fetchTranscriptViaWatchPage;
 const axios_1 = __importDefault(require("axios"));
 const logger_1 = require("../utils/logger");
 function extractPlayerResponse(html) {
-    // Try ytInitialPlayerResponse assignment
-    const re = /ytInitialPlayerResponse\s*=\s*(\{[\s\S]*?\});/;
-    const m = html.match(re);
-    if (m && m[1]) {
-        try {
-            return JSON.parse(m[1]);
+    // Try ytInitialPlayerResponse assignment (most common)
+    const patterns = [
+        /ytInitialPlayerResponse\s*=\s*(\{.+?\});(?:\s*var\s|\s*<\/script>)/s,
+        /ytInitialPlayerResponse\s*=\s*(\{[\s\S]*?\});/,
+        /\"playerResponse\":(\{[\s\S]*?\})\s*,\"responseContext\"/
+    ];
+    for (const re of patterns) {
+        const m = html.match(re);
+        if (m && m[1]) {
+            try {
+                return JSON.parse(m[1]);
+            }
+            catch (e) {
+                // Try to fix common JSON issues
+                try {
+                    // Sometimes the JSON has trailing content
+                    const cleaned = m[1].replace(/\}\s*;?\s*$/, '}');
+                    return JSON.parse(cleaned);
+                }
+                catch { }
+            }
         }
-        catch { }
-    }
-    // Fallback: look for "playerResponse" in ytcfg
-    const re2 = /\"playerResponse\":(\{[\s\S]*?\})\s*,\"responseContext\"/;
-    const m2 = html.match(re2);
-    if (m2 && m2[1]) {
-        try {
-            return JSON.parse(m2[1]);
-        }
-        catch { }
     }
     return null;
 }
-async function fetchTranscriptViaWatchPage(videoId, preferredLangs = ['en', 'en-US', 'en-GB']) {
+async function fetchTranscriptViaWatchPage(videoId, preferredLangs = ['en', 'en-US', 'en-GB', 'en-IN', 'hi', 'hi-IN']) {
+    const startTime = Date.now();
     try {
         const url = `https://www.youtube.com/watch?v=${videoId}`;
         const { data: html } = await axios_1.default.get(url, {
-            timeout: 5000,
+            timeout: 8000,
             headers: {
                 'Accept-Language': 'en-US,en;q=0.9',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1'
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
             }
         });
         const pr = extractPlayerResponse(html);
+        if (!pr) {
+            logger_1.logger.warn(`Could not extract playerResponse from watch page for ${videoId}`);
+            return [];
+        }
         const tracks = pr?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
         if (!tracks.length) {
             logger_1.logger.info(`No caption tracks found in playerResponse for video: ${videoId}`);
             return [];
         }
         logger_1.logger.info(`Found ${tracks.length} caption track(s) for video: ${videoId}`);
-        tracks.forEach((t, i) => logger_1.logger.debug(`Track ${i}: ${t.languageCode || 'unknown'}`));
-        // Choose best track
+        // Log available languages for debugging
+        const availableLangs = tracks.map(t => t.languageCode).join(', ');
+        logger_1.logger.debug(`Available languages: ${availableLangs}`);
+        // Choose best track - prefer English, then any available
         let chosen = tracks.find(t => preferredLangs.includes(t.languageCode)) || tracks[0];
-        if (!chosen?.baseUrl)
+        logger_1.logger.info(`Selected caption track: ${chosen?.languageCode || 'unknown'}`);
+        if (!chosen?.baseUrl) {
+            logger_1.logger.warn(`No baseUrl found for caption track in video: ${videoId}`);
             return [];
-        // Try multiple formats sequentially for robustness
-        const candidates = [];
+        }
+        // Try JSON3 format first (most reliable), then others
         const base = chosen.baseUrl;
-        if (base.includes('fmt='))
-            candidates.push(base);
-        candidates.push(`${base}&fmt=json3`);
-        candidates.push(`${base}&fmt=srv3`);
-        candidates.push(`${base}&fmt=vtt`);
+        const candidates = [
+            `${base}&fmt=json3`, // Most reliable format
+            base, // Original URL (might already have format)
+            `${base}&fmt=srv3`,
+            `${base}&fmt=vtt`
+        ];
         for (const urlCandidate of candidates) {
             try {
-                const { data } = await axios_1.default.get(urlCandidate, {
-                    timeout: 5000,
+                logger_1.logger.info(`Trying caption URL: ${urlCandidate.substring(0, 100)}...`);
+                const { data, status } = await axios_1.default.get(urlCandidate, {
+                    timeout: 8000,
+                    responseType: 'text', // Force text response
                     headers: {
                         'Accept-Language': 'en-US,en;q=0.9',
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
                     }
                 });
-                // VTT text format
+                const dataLen = typeof data === 'string' ? data.length : JSON.stringify(data).length;
+                logger_1.logger.info(`Caption response: status=${status}, type=${typeof data}, length=${dataLen}`);
+                // Parse JSON if it's a string
+                let parsedData = data;
                 if (typeof data === 'string') {
-                    const lines = String(data).split(/\r?\n/);
-                    const segs = [];
-                    for (let i = 0; i < lines.length; i++) {
-                        const m = lines[i].match(/(\d{2}:\d{2}:\d{2}\.\d{3})\s+-->\s+(\d{2}:\d{2}:\d{2}\.\d{3})/);
-                        if (m && lines[i + 1]) {
-                            const toSec = (hhmmss) => {
-                                const [h, mn, rs] = hhmmss.split(':');
-                                const [sec, ms] = rs.split('.');
-                                return Number(h) * 3600 + Number(mn) * 60 + Number(sec) + Number(ms) / 1000;
-                            };
-                            const start = Math.floor(toSec(m[1]));
-                            const end = Math.floor(toSec(m[2]));
-                            let text = lines[i + 1].trim();
-                            // Remove VTT tags like <c>, <i>, etc.
-                            text = text.replace(/<[^>]+>/g, '').trim();
-                            const dur = Math.max(0, end - start);
-                            if (text && text.length > 0 && !text.match(/^WEBVTT/i)) {
-                                segs.push({ text, start, duration: dur });
-                            }
+                    const trimmed = data.trim();
+                    // Log what we actually got
+                    if (trimmed.length === 0) {
+                        logger_1.logger.warn(`Caption URL returned empty string`);
+                        continue; // Skip to next URL format
+                    }
+                    // Check if it looks like JSON
+                    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                        try {
+                            parsedData = JSON.parse(data);
+                            logger_1.logger.info(`Parsed JSON string response successfully`);
+                        }
+                        catch (e) {
+                            logger_1.logger.debug(`Failed to parse as JSON: ${e.message}`);
                         }
                     }
-                    if (segs.length) {
-                        logger_1.logger.info(`Watch page fallback extracted ${segs.length} VTT segments for video: ${videoId}`);
-                        return segs;
+                    else if (trimmed.startsWith('<?xml') || trimmed.includes('<transcript>') || trimmed.includes('<text ')) {
+                        // It's XML format - parse it
+                        logger_1.logger.info(`Response is XML format, parsing...`);
+                        const segments = parseXMLTranscript(trimmed);
+                        if (segments.length > 0) {
+                            const elapsed = Date.now() - startTime;
+                            logger_1.logger.info(`✅ Watch-page extracted ${segments.length} XML segments for ${videoId} in ${elapsed}ms`);
+                            return segments;
+                        }
                     }
-                    continue;
+                    else {
+                        // Log first 200 chars to understand the format
+                        logger_1.logger.info(`Response starts with: ${trimmed.substring(0, 200)}`);
+                    }
                 }
-                // JSON format (json3 or srv3)
-                const events = data?.events || [];
-                const segments = [];
-                for (const ev of events) {
-                    const startMs = ev?.tStartMs;
-                    const durMs = ev?.dDurationMs || 0;
-                    const parts = ev?.segs || ev?.segments || [];
-                    if (typeof startMs !== 'number' || !Array.isArray(parts))
-                        continue;
-                    const text = parts.map((p) => p?.utf8 || p?.text || '').join('').trim();
-                    if (!text)
-                        continue;
-                    segments.push({ text, start: Math.max(0, Math.floor(startMs / 1000)), duration: Math.max(0, Math.floor((durMs || 0) / 1000)) });
+                // Try JSON format first (json3 or srv3)
+                if (parsedData && typeof parsedData === 'object') {
+                    const events = parsedData?.events || [];
+                    logger_1.logger.info(`JSON response has ${events.length} events`);
+                    const segments = [];
+                    for (const ev of events) {
+                        const startMs = ev?.tStartMs;
+                        const durMs = ev?.dDurationMs || 0;
+                        const parts = ev?.segs || ev?.segments || [];
+                        if (typeof startMs !== 'number')
+                            continue;
+                        let text = '';
+                        if (Array.isArray(parts)) {
+                            text = parts.map((p) => p?.utf8 || p?.text || '').join('').trim();
+                        }
+                        // Skip empty or whitespace-only segments
+                        if (!text || text === '\n')
+                            continue;
+                        // Clean the text
+                        text = text.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+                        segments.push({
+                            text,
+                            start: Math.max(0, Math.floor(startMs / 1000)),
+                            duration: Math.max(1, Math.floor((durMs || 1000) / 1000))
+                        });
+                    }
+                    if (segments.length > 0) {
+                        const elapsed = Date.now() - startTime;
+                        logger_1.logger.info(`✅ Watch-page extracted ${segments.length} JSON segments for ${videoId} in ${elapsed}ms`);
+                        return segments;
+                    }
                 }
-                if (segments.length) {
-                    logger_1.logger.info(`Watch page fallback extracted ${segments.length} JSON segments for video: ${videoId}`);
-                    return segments;
+                // Try VTT text format (check the original data, not parsed)
+                if (typeof data === 'string' && data.includes('-->')) {
+                    const segments = parseVTT(data);
+                    if (segments.length > 0) {
+                        const elapsed = Date.now() - startTime;
+                        logger_1.logger.info(`✅ Watch-page extracted ${segments.length} VTT segments for ${videoId} in ${elapsed}ms`);
+                        return segments;
+                    }
                 }
             }
             catch (e) {
-                logger_1.logger.debug(`Failed to fetch caption from URL format, trying next: ${e instanceof Error ? e.message : String(e)}`);
+                logger_1.logger.warn(`Caption URL failed: ${e?.message || e}`);
             }
         }
+        const elapsed = Date.now() - startTime;
+        logger_1.logger.warn(`Watch-page: All caption formats failed for ${videoId} after ${elapsed}ms`);
         return [];
     }
     catch (e) {
-        logger_1.logger.warn('Watch-page transcript fallback failed for %s: %o', videoId, e);
+        const elapsed = Date.now() - startTime;
+        logger_1.logger.warn(`Watch-page failed for ${videoId} after ${elapsed}ms: ${e?.message || e}`);
         return [];
     }
+}
+// Helper function to parse VTT format
+function parseVTT(vttData) {
+    const lines = vttData.split(/\r?\n/);
+    const segments = [];
+    for (let i = 0; i < lines.length; i++) {
+        const timeMatch = lines[i].match(/(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})/);
+        if (timeMatch && lines[i + 1]) {
+            const toSec = (hhmmss) => {
+                const [h, mn, rest] = hhmmss.split(':');
+                const [sec, ms] = rest.split('.');
+                return Number(h) * 3600 + Number(mn) * 60 + Number(sec) + Number(ms) / 1000;
+            };
+            const start = Math.floor(toSec(timeMatch[1]));
+            const end = Math.floor(toSec(timeMatch[2]));
+            let text = lines[i + 1].trim();
+            // Remove VTT tags and clean text
+            text = text.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+            if (text && !text.match(/^(WEBVTT|Kind:|Language:)/i)) {
+                segments.push({ text, start, duration: Math.max(1, end - start) });
+            }
+        }
+    }
+    return segments;
+}
+// Helper function to parse XML transcript format (YouTube's native format)
+function parseXMLTranscript(xmlData) {
+    const segments = [];
+    // Match <text start="X" dur="Y">content</text> patterns
+    const textPattern = /<text\s+start="([^"]+)"(?:\s+dur="([^"]+)")?[^>]*>([^<]*)<\/text>/g;
+    let match;
+    while ((match = textPattern.exec(xmlData)) !== null) {
+        const start = parseFloat(match[1]) || 0;
+        const duration = parseFloat(match[2]) || 1;
+        let text = match[3] || '';
+        // Decode HTML entities
+        text = text
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&apos;/g, "'")
+            .replace(/\n/g, ' ')
+            .trim();
+        if (text) {
+            segments.push({
+                text,
+                start: Math.floor(start),
+                duration: Math.max(1, Math.floor(duration))
+            });
+        }
+    }
+    return segments;
 }
 //# sourceMappingURL=transcriptFallbackService.js.map

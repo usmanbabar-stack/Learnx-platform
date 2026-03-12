@@ -46,22 +46,48 @@ export class TranscriptOrchestrationService {
 
   async preloadTranscript(videoId: string): Promise<void> {
     if (this.processingQueue.has(videoId)) {
-      logger.info(`Transcript already processing for ${videoId}`);
+      return; // Silent return - no logging spam
+    }
+
+    // ⚡ OPTIMIZATION 1: Fast Redis boolean check before DB query
+    const redisClient = getRedisClient();
+    if (redisClient) {
+      const hasTranscript = await redisClient.get(`transcript:exists:${videoId}`);
+      if (hasTranscript === 'true') {
+        this.readinessStatus.set(videoId, { ready: true, message: 'Ready (cached)' });
+        return;
+      }
+    }
+
+    // ⚡ OPTIMIZATION 2: Fast database check before expensive operations
+    const dbTranscript = await videoRepository.getTranscriptByVideoId(videoId);
+    if (dbTranscript && dbTranscript.length > 0) {
+      this.readinessStatus.set(videoId, { ready: true, message: 'Ready (database)' });
+      
+      // Cache the existence flag in Redis for faster future checks
+      if (redisClient) {
+        await redisClient.setEx(`transcript:exists:${videoId}`, 3600, 'true'); // 1 hour cache
+      }
+      
       return;
     }
 
     // 🐛 FIX: Check cache BEFORE fetching - avoid redundant yt-dlp calls!
     const cached = await this.getCachedTranscript(videoId);
     if (cached) {
-      logger.info(`✅ Transcript already cached for ${videoId}, skipping preload`);
       return;
     }
 
+    // Start transcript extraction in background
+    logger.info(`🚀 Starting background transcript extraction: ${videoId}`);
     const promise = this.fetchAndCacheTranscript(videoId);
     this.processingQueue.set(videoId, promise);
 
     try {
       await promise;
+      logger.info(`✅ Transcript ready: ${videoId}`);
+    } catch (error) {
+      logger.error(`❌ Transcript extraction failed for ${videoId}:`, error);
     } finally {
       this.processingQueue.delete(videoId);
     }
@@ -190,58 +216,52 @@ export class TranscriptOrchestrationService {
 
     // 1) ⚡ PRIMARY: Innertube (youtubei.js) - FASTEST & MOST RELIABLE (2-5 seconds)
     try {
-      this.readinessStatus.set(videoId, { ready: false, message: 'Fetching captions (fast)...' });
+      this.readinessStatus.set(videoId, { ready: false, message: 'Fetching captions...' });
       const fastStart = Date.now();
-      logger.info(`⚡ Trying Innertube (youtubei.js) for ${videoId}`);
       const innertubeSegments = await fetchTranscriptViaInnertube(videoId);
       const fastTime = Date.now() - fastStart;
       
       if (innertubeSegments.length > 0) {
         segments = innertubeSegments as any;
-        source = 'watch-page'; // Keep as watch-page for compatibility
+        source = 'watch-page';
         confidence = 'high';
-        logger.info(`⚡ Innertube SUCCESS: ${innertubeSegments.length} segments in ${fastTime}ms`);
-      } else {
-        logger.info(`⚡ Innertube returned empty for ${videoId} after ${fastTime}ms, trying yt-dlp...`);
+        logger.info(`⚡ Fast captions: ${innertubeSegments.length} segments (${fastTime}ms)`);
       }
     } catch (error) {
-      logger.warn(`⚡ Innertube failed for ${videoId}, trying yt-dlp fallback...`);
+      // Silent fallback to yt-dlp
     }
 
     // 2) FALLBACK: yt-dlp (60-90 seconds but most reliable)
     if (segments.length === 0) {
       try {
-        this.readinessStatus.set(videoId, { ready: false, message: 'Extracting captions (yt-dlp)...' });
+        this.readinessStatus.set(videoId, { ready: false, message: 'Extracting captions...' });
         const ytdlpStart = Date.now();
-        logger.info(`Fetching transcript with yt-dlp for ${videoId} (slow fallback)`);
         segments = await fetchTranscriptWithYtDlp(videoId) as any;
         const ytdlpTime = Date.now() - ytdlpStart;
         if (segments.length > 0) {
           source = 'yt-dlp';
           confidence = 'high';
-          logger.info(`✅ yt-dlp success: ${segments.length} segments in ${ytdlpTime}ms`);
-        } else {
-          logger.warn(`⚠️ yt-dlp returned 0 segments for ${videoId}`);
+          logger.info(`✅ yt-dlp: ${segments.length} segments (${(ytdlpTime/1000).toFixed(1)}s)`);
         }
       } catch (error) {
-        logger.error(`❌ yt-dlp failed for ${videoId}:`, error);
+        logger.error(`❌ yt-dlp failed: ${videoId}`);
       }
     }
 
-    // 4) Optional: ASR fallback (Whisper)
+    // 3) Optional: ASR fallback (Whisper) - Only if explicitly enabled
     const asrFallbackEnabled = String(process.env.ENABLE_ASR_FALLBACK || 'false').toLowerCase() === 'true';
     if (segments.length === 0 && asrFallbackEnabled) {
       try {
-        this.readinessStatus.set(videoId, { ready: false, message: 'Transcribing audio (ASR)...' });
+        this.readinessStatus.set(videoId, { ready: false, message: 'Audio transcription...' });
         const asrSegs = await transcribeFullAudioWithWhisper(videoId) as any;
         if (asrSegs.length > 0) {
           segments = asrSegs;
           source = 'whisper';
           confidence = 'medium';
-          logger.info(`✅ ASR transcription success: ${asrSegs.length} segments`);
+          logger.info(`✅ ASR: ${asrSegs.length} segments`);
         }
       } catch (asrError) {
-        logger.error(`❌ ASR transcription failed for ${videoId}:`, asrError);
+        logger.error(`❌ ASR failed: ${videoId}`);
       }
     }
 

@@ -175,6 +175,20 @@ def transcribe():
     return jsonify({"segments": segments})
 
 
+@app.get("/health")
+def health():
+    """Health check endpoint for Docker and monitoring."""
+    models_status = {
+        "en_us": model_en_us is not None,
+        "en_in": model_en_in is not None,
+    }
+    return jsonify({
+        "status": "healthy",
+        "models": models_status,
+        "models_loaded": any(models_status.values()),
+    })
+
+
 if __name__ == "__main__":
     port = int(os.getenv("ASR_PORT", "8000"))
     app.run(host="0.0.0.0", port=port)

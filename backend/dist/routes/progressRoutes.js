@@ -8,6 +8,8 @@ const progressController_1 = require("../controllers/progressController");
 const router = express_1.default.Router();
 // Dashboard and stats routes
 router.get('/stats', progressController_1.progressController.getDashboardStats.bind(progressController_1.progressController));
+router.get('/weekly', progressController_1.progressController.getWeeklyStats.bind(progressController_1.progressController));
+router.get('/patterns', progressController_1.progressController.getLearningPatterns.bind(progressController_1.progressController));
 router.get('/in-progress', progressController_1.progressController.getInProgressVideos.bind(progressController_1.progressController));
 router.get('/recently-watched', progressController_1.progressController.getRecentlyWatched.bind(progressController_1.progressController));
 router.get('/completed', progressController_1.progressController.getCompletedVideos.bind(progressController_1.progressController));

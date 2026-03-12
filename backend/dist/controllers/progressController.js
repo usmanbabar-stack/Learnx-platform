@@ -221,6 +221,60 @@ class ProgressController {
             });
         }
     }
+    /**
+     * Get weekly learning stats (hours per day for past 7 days)
+     */
+    async getWeeklyStats(req, res) {
+        try {
+            const userId = parseInt(req.query.userId);
+            if (!userId || isNaN(userId)) {
+                res.status(400).json({
+                    success: false,
+                    message: 'Valid userId is required'
+                });
+                return;
+            }
+            const weeklyData = await userProgressRepository_1.userProgressRepository.getWeeklyStats(userId);
+            res.json({
+                success: true,
+                data: weeklyData
+            });
+        }
+        catch (error) {
+            logger_1.logger.error('Error getting weekly stats:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Internal server error'
+            });
+        }
+    }
+    /**
+     * Get learning patterns (time-of-day distribution)
+     */
+    async getLearningPatterns(req, res) {
+        try {
+            const userId = parseInt(req.query.userId);
+            if (!userId || isNaN(userId)) {
+                res.status(400).json({
+                    success: false,
+                    message: 'Valid userId is required'
+                });
+                return;
+            }
+            const patterns = await userProgressRepository_1.userProgressRepository.getLearningPatterns(userId);
+            res.json({
+                success: true,
+                data: patterns
+            });
+        }
+        catch (error) {
+            logger_1.logger.error('Error getting learning patterns:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Internal server error'
+            });
+        }
+    }
 }
 exports.ProgressController = ProgressController;
 exports.progressController = new ProgressController();

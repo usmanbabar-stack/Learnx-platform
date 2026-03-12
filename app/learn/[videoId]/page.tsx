@@ -41,6 +41,7 @@ import {
   ArrowLeft,
   BookMarked,
   Trash2,
+  RefreshCw,
 } from "lucide-react"
 import { AuthGuard } from "@/components/auth-guard"
 import Link from "next/link"
@@ -192,6 +193,15 @@ export default function VideoLearningPage({ params }: { params: { videoId: strin
       loadVideoProgress();
       loadChatHistory();
     }
+    
+    // Cleanup polling when video changes
+    return () => {
+      if (statusPollingRef.current) {
+        console.log('Cleaning up status polling on video change');
+        clearInterval(statusPollingRef.current);
+        statusPollingRef.current = null;
+      }
+    };
   }, [videoId, mounted, currentUserId]);
 
   // 💬 CHAT HISTORY: Load saved chat messages
@@ -249,6 +259,52 @@ export default function VideoLearningPage({ params }: { params: { videoId: strin
       console.log(`🗑️ Cleared chat history for video ${videoId}`);
     } catch (e) {
       console.error('Failed to clear chat history:', e);
+    }
+  };
+
+  // 🔄 MANUAL REFRESH: Check chatbot status on demand
+  const refreshChatbotStatus = async () => {
+    console.log('🔄 Manual status refresh triggered');
+    setChatbotStatus('Checking status...');
+    try {
+      const status = await apiService.checkTranscriptStatus(videoId);
+      console.log('📊 Manual status check result:', {
+        success: status.success,
+        ready: status.data?.ready,
+        qdrantReady: status.data?.qdrantReady,
+        dbReady: status.data?.dbReady,
+        chunkCount: status.data?.chunkCount,
+        wordCount: status.data?.wordCount,
+        message: status.data?.message
+      });
+      
+      // 🔧 CRITICAL FIX: Check for Qdrant readiness, not just orchestration status
+      const isQdrantReady = status.data?.qdrantReady === true;
+      const hasChunks = (status.data?.chunkCount || 0) > 0;
+      const isTrulyReady = status.success && isQdrantReady && hasChunks;
+      
+      if (isTrulyReady) {
+        setChatbotReady(true);
+        const wordCount = status.data.wordCount ? ` (${status.data.wordCount} words indexed)` : '';
+        const chunkInfo = status.data.chunkCount ? ` - ${status.data.chunkCount} chunks` : '';
+        setChatbotStatus(`Ready for questions!${wordCount}${chunkInfo}`);
+        console.log('✅ Chatbot is now ready with', status.data.chunkCount, 'Qdrant chunks!');
+      } else {
+        if (!isQdrantReady) {
+          setChatbotStatus('Indexing for AI search... (check again in a moment)');
+          console.log('⏳ Qdrant still indexing:', status.data?.chunkCount || 0, 'chunks so far');
+        } else if (!hasChunks) {
+          setChatbotStatus('Preparing AI search index...');
+          console.log('⏳ Waiting for chunks to be created');
+        } else {
+          const backendMessage = status.data?.message || status.data?.status;
+          setChatbotStatus(backendMessage || 'Still processing...');
+          console.log('⏳ Chatbot still processing:', backendMessage);
+        }
+      }
+    } catch (e) {
+      console.error('❌ Failed to refresh status:', e);
+      setChatbotStatus('Failed to check status. Please try again.');
     }
   };
 
@@ -370,6 +426,13 @@ export default function VideoLearningPage({ params }: { params: { videoId: strin
 
   const loadVideoData = async () => {
     try {
+      // 🔧 FIX: Clear any existing status polling before starting new one
+      if (statusPollingRef.current) {
+        console.log('Clearing previous status polling interval');
+        clearInterval(statusPollingRef.current);
+        statusPollingRef.current = null;
+      }
+      
       // Set mock data immediately for instant loading
       const mockData: VideoData = {
         id: videoId,
@@ -409,40 +472,59 @@ export default function VideoLearningPage({ params }: { params: { videoId: strin
         // Fire preload request (don't await) - but check login status
         if (isLoggedInRef.current) {
           apiService.preloadTranscript(videoId).then(() => {
-            console.log('Transcript preload request sent');
+            console.log('✅ Transcript preload request sent');
           }).catch(err => {
-            console.log('Transcript preload initiated (background)');
+            console.log('⚠️ Transcript preload initiated (background)');
           });
         }
         
-        // Improved polling: Check status immediately and at intervals
-        let pollCount = 0;
-        // 🔧 FIX: Extend polling to 3 minutes for longer videos (90 polls × 2s = 180s)
-        const maxPolls = 90;
+        // 🔧 CRITICAL FIX: Use ref for pollCount to persist across interval calls
+        const pollCountRef = { current: 0 };
+        const maxPolls = 90; // 90 polls × 2s = 180s (3 minutes)
         let lastStatusMessage = 'Processing video transcript...';
         
-        const checkAndUpdateStatus = async () => {
+        const checkAndUpdateStatus = async (): Promise<boolean> => {
           // 🛡️ Stop if user logged out
           if (!isLoggedInRef.current) {
+            console.log('⚠️ User logged out, stopping status checks');
             return true; // Stop polling
           }
           
           try {
             const status = await apiService.checkTranscriptStatus(videoId);
-            console.log('📊 Chatbot status check:', status);
+            console.log(`📊 Status check #${pollCountRef.current} for ${videoId}:`, {
+              success: status.success,
+              ready: status.data?.ready,
+              qdrantReady: status.data?.qdrantReady,
+              dbReady: status.data?.dbReady,
+              chunkCount: status.data?.chunkCount,
+              message: status.data?.message
+            });
             
-            if (status.success && status.data?.ready) {
+            // 🔧 CRITICAL FIX: Only consider ready when Qdrant is indexed (for AI search)
+            // The orchestration service might say "ready" but Qdrant indexing is still in progress
+            const isQdrantReady = status.data?.qdrantReady === true;
+            const hasChunks = (status.data?.chunkCount || 0) > 0;
+            const isTrulyReady = status.success && isQdrantReady && hasChunks;
+            
+            if (isTrulyReady) {
               setChatbotReady(true);
               const wordCount = status.data.wordCount ? ` (${status.data.wordCount} words indexed)` : '';
-              setChatbotStatus(`Ready for questions!${wordCount}`);
+              const chunkInfo = status.data.chunkCount ? ` - ${status.data.chunkCount} chunks` : '';
+              setChatbotStatus(`Ready for questions!${wordCount}${chunkInfo}`);
+              console.log('✅ Chatbot is NOW READY! Qdrant indexed with', status.data.chunkCount, 'chunks');
               return true; // Stop polling
             } else {
-              // 🔧 FIX: Use backend status message if available, otherwise show progress
-              const backendMessage = status.data?.message || status.data?.status;
-              if (backendMessage && backendMessage !== 'Not started') {
-                lastStatusMessage = backendMessage;
+              // Show specific status based on what's ready
+              if (!isQdrantReady) {
+                lastStatusMessage = 'Indexing for AI search...';
+                console.log('⏳ Waiting for Qdrant indexing... (chunks:', status.data?.chunkCount || 0, ')');
+              } else if (!hasChunks) {
+                lastStatusMessage = 'Preparing AI search index...';
+                console.log('⏳ Waiting for chunks to be created...');
               } else {
-                const elapsed = pollCount * 2;
+                // Use backend message as fallback
+                const elapsed = pollCountRef.current * 2;
                 if (elapsed < 30) {
                   lastStatusMessage = 'Processing video transcript...';
                 } else if (elapsed < 60) {
@@ -454,36 +536,56 @@ export default function VideoLearningPage({ params }: { params: { videoId: strin
                 }
               }
               setChatbotStatus(lastStatusMessage);
+              console.log(`⏳ Still processing: ${lastStatusMessage}`);
               return false; // Continue polling
             }
           } catch (e) {
-            console.log('Status check failed, retrying...');
-            return false;
+            console.error('❌ Status check failed:', e);
+            setChatbotStatus('Checking status...');
+            return false; // Continue polling even on error
           }
         };
         
-        // Check immediately
+        // 🔧 CRITICAL FIX: Wait a moment for preload to start before checking
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+        
+        // Check immediately after brief delay
+        console.log('🔍 Starting initial status check...');
         const isReady = await checkAndUpdateStatus();
+        console.log(`📊 Initial check result: ${isReady ? '✅ READY' : '⏳ NOT READY'}`);
         
         // If not ready, start polling
         if (!isReady && isLoggedInRef.current) {
+          console.log('🔄 Starting status polling (every 2 seconds, max 90 attempts)...');
           statusPollingRef.current = setInterval(async () => {
-            pollCount++;
+            pollCountRef.current++;
+            console.log(`\n📊 Poll #${pollCountRef.current}/${maxPolls} starting...`);
+            
             const ready = await checkAndUpdateStatus();
             
-            if (ready || pollCount >= maxPolls || !isLoggedInRef.current) {
+            if (ready) {
+              console.log('🎉 Transcript ready! Stopping polling.');
               if (statusPollingRef.current) {
                 clearInterval(statusPollingRef.current);
                 statusPollingRef.current = null;
               }
-              
-              // 🔧 FIX: Don't say "AI available" if not ready - keep showing processing status
-              if (!ready && pollCount >= maxPolls) {
-                // Still processing - don't mislead user
-                setChatbotStatus('Still processing... (ask a question to check)');
+            } else if (pollCountRef.current >= maxPolls) {
+              console.log('⏰ Max polling attempts reached. Stopping.');
+              if (statusPollingRef.current) {
+                clearInterval(statusPollingRef.current);
+                statusPollingRef.current = null;
+              }
+              setChatbotStatus('Processing taking longer than expected. Try asking a question or refreshing.');
+            } else if (!isLoggedInRef.current) {
+              console.log('🚪 User logged out. Stopping polling.');
+              if (statusPollingRef.current) {
+                clearInterval(statusPollingRef.current);
+                statusPollingRef.current = null;
               }
             }
-          }, 2000);
+          }, 2000); // Check every 2 seconds
+        } else if (isReady) {
+          console.log('✅ Transcript already ready! No polling needed.');
         }
         
       } catch (apiError) {
@@ -1159,6 +1261,18 @@ export default function VideoLearningPage({ params }: { params: { videoId: strin
                       >
                         {chatbotReady ? "Ready" : "Loading..."}
                       </Badge>
+                      {/* 🔄 Manual refresh button */}
+                      {!chatbotReady && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={refreshChatbotStatus}
+                          className="h-7 px-2 text-muted-foreground hover:text-primary"
+                          title="Refresh chatbot status"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1 font-open-sans">

@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.transcriptOrchestrationService = exports.TranscriptOrchestrationService = void 0;
 const logger_1 = require("../utils/logger");
-const transcriptFallbackService_1 = require("./transcriptFallbackService");
+const youtubeInnertubeService_1 = require("./youtubeInnertubeService");
 const ytdlpTranscriptService_1 = require("./ytdlpTranscriptService");
 const audioTranscriptService_1 = require("./audioTranscriptService");
 const videoRepository_1 = require("../repositories/videoRepository");
@@ -27,13 +27,42 @@ class TranscriptOrchestrationService {
     }
     async preloadTranscript(videoId) {
         if (this.processingQueue.has(videoId)) {
-            logger_1.logger.info(`Transcript already processing for ${videoId}`);
+            return; // Silent return - no logging spam
+        }
+        // ⚡ OPTIMIZATION 1: Fast Redis boolean check before DB query
+        const redisClient = (0, redis_1.getRedisClient)();
+        if (redisClient) {
+            const hasTranscript = await redisClient.get(`transcript:exists:${videoId}`);
+            if (hasTranscript === 'true') {
+                this.readinessStatus.set(videoId, { ready: true, message: 'Ready (cached)' });
+                return;
+            }
+        }
+        // ⚡ OPTIMIZATION 2: Fast database check before expensive operations
+        const dbTranscript = await videoRepository_1.videoRepository.getTranscriptByVideoId(videoId);
+        if (dbTranscript && dbTranscript.length > 0) {
+            this.readinessStatus.set(videoId, { ready: true, message: 'Ready (database)' });
+            // Cache the existence flag in Redis for faster future checks
+            if (redisClient) {
+                await redisClient.setEx(`transcript:exists:${videoId}`, 3600, 'true'); // 1 hour cache
+            }
             return;
         }
+        // 🐛 FIX: Check cache BEFORE fetching - avoid redundant yt-dlp calls!
+        const cached = await this.getCachedTranscript(videoId);
+        if (cached) {
+            return;
+        }
+        // Start transcript extraction in background
+        logger_1.logger.info(`🚀 Starting background transcript extraction: ${videoId}`);
         const promise = this.fetchAndCacheTranscript(videoId);
         this.processingQueue.set(videoId, promise);
         try {
             await promise;
+            logger_1.logger.info(`✅ Transcript ready: ${videoId}`);
+        }
+        catch (error) {
+            logger_1.logger.error(`❌ Transcript extraction failed for ${videoId}:`, error);
         }
         finally {
             this.processingQueue.delete(videoId);
@@ -145,62 +174,59 @@ class TranscriptOrchestrationService {
     }
     async fetchAndCacheTranscript(videoId) {
         const startTime = Date.now();
-        logger_1.logger.info(`Starting transcript fetch for: ${videoId}`);
+        logger_1.logger.info(`⏱️ Starting transcript fetch for: ${videoId} at ${new Date().toISOString()}`);
         this.readinessStatus.set(videoId, { ready: false, message: 'Fetching transcript...' });
         let segments = [];
         let source = 'yt-dlp';
         let confidence = 'high';
-        // 1) Primary: yt-dlp (most robust, supports all languages when configured)
+        // 1) ⚡ PRIMARY: Innertube (youtubei.js) - FASTEST & MOST RELIABLE (2-5 seconds)
         try {
-            this.readinessStatus.set(videoId, { ready: false, message: 'Extracting captions (yt-dlp)...' });
-            logger_1.logger.info(`Fetching transcript with yt-dlp for ${videoId}`);
-            segments = await (0, ytdlpTranscriptService_1.fetchTranscriptWithYtDlp)(videoId);
-            if (segments.length > 0) {
-                source = 'yt-dlp';
+            this.readinessStatus.set(videoId, { ready: false, message: 'Fetching captions...' });
+            const fastStart = Date.now();
+            const innertubeSegments = await (0, youtubeInnertubeService_1.fetchTranscriptViaInnertube)(videoId);
+            const fastTime = Date.now() - fastStart;
+            if (innertubeSegments.length > 0) {
+                segments = innertubeSegments;
+                source = 'watch-page';
                 confidence = 'high';
-                logger_1.logger.info(`✅ yt-dlp success: ${segments.length} segments`);
-            }
-            else {
-                logger_1.logger.warn(`⚠️ yt-dlp returned 0 segments for ${videoId}`);
+                logger_1.logger.info(`⚡ Fast captions: ${innertubeSegments.length} segments (${fastTime}ms)`);
             }
         }
         catch (error) {
-            logger_1.logger.error(`❌ yt-dlp failed for ${videoId}:`, error);
+            // Silent fallback to yt-dlp
         }
-        // 2) Fast watch-page fallback
+        // 2) FALLBACK: yt-dlp (60-90 seconds but most reliable)
         if (segments.length === 0) {
             try {
-                this.readinessStatus.set(videoId, { ready: false, message: 'Trying watch-page fallback...' });
-                const rawLangs = process.env.WATCHPAGE_FALLBACK_LANGS || 'en,en-US,en-GB,ur,ur-IN,hi,hi-IN';
-                const preferredLangs = rawLangs.split(',').map(l => l.trim()).filter(Boolean);
-                logger_1.logger.info(`Attempting watch-page caption fallback for ${videoId}`);
-                const wpSegments = await (0, transcriptFallbackService_1.fetchTranscriptViaWatchPage)(videoId, preferredLangs);
-                if (wpSegments.length > 0) {
-                    segments = wpSegments;
-                    source = 'watch-page';
-                    confidence = 'medium';
-                    logger_1.logger.info(`✅ Watch-page fallback success: ${wpSegments.length} segments`);
+                this.readinessStatus.set(videoId, { ready: false, message: 'Extracting captions...' });
+                const ytdlpStart = Date.now();
+                segments = await (0, ytdlpTranscriptService_1.fetchTranscriptWithYtDlp)(videoId);
+                const ytdlpTime = Date.now() - ytdlpStart;
+                if (segments.length > 0) {
+                    source = 'yt-dlp';
+                    confidence = 'high';
+                    logger_1.logger.info(`✅ yt-dlp: ${segments.length} segments (${(ytdlpTime / 1000).toFixed(1)}s)`);
                 }
             }
-            catch (wpError) {
-                logger_1.logger.warn(`Watch-page fallback failed for ${videoId}:`, wpError);
+            catch (error) {
+                logger_1.logger.error(`❌ yt-dlp failed: ${videoId}`);
             }
         }
-        // 3) Optional: ASR fallback
+        // 3) Optional: ASR fallback (Whisper) - Only if explicitly enabled
         const asrFallbackEnabled = String(process.env.ENABLE_ASR_FALLBACK || 'false').toLowerCase() === 'true';
         if (segments.length === 0 && asrFallbackEnabled) {
             try {
-                this.readinessStatus.set(videoId, { ready: false, message: 'Transcribing audio (ASR)...' });
+                this.readinessStatus.set(videoId, { ready: false, message: 'Audio transcription...' });
                 const asrSegs = await (0, audioTranscriptService_1.transcribeFullAudioWithWhisper)(videoId);
                 if (asrSegs.length > 0) {
                     segments = asrSegs;
                     source = 'whisper';
                     confidence = 'medium';
-                    logger_1.logger.info(`✅ ASR transcription success: ${asrSegs.length} segments`);
+                    logger_1.logger.info(`✅ ASR: ${asrSegs.length} segments`);
                 }
             }
             catch (asrError) {
-                logger_1.logger.error(`❌ ASR transcription failed for ${videoId}:`, asrError);
+                logger_1.logger.error(`❌ ASR failed: ${videoId}`);
             }
         }
         const processingTime = Date.now() - startTime;
@@ -219,19 +245,24 @@ class TranscriptOrchestrationService {
             this.readinessStatus.set(videoId, { ready: false, message: 'Indexing for AI search...' });
             try {
                 const chunks = (0, transcriptRetrievalService_1.chunkTranscript)(segments);
+                const indexingStart = Date.now();
                 // Use progressive indexing - marks ready after first 30 chunks
                 await qdrantService_1.qdrantService.upsertChunksProgressive(videoId, chunks, () => {
                     // Callback when initial chunks are indexed - AI is ready!
+                    const aiReadyTime = Date.now() - startTime;
                     this.readinessStatus.set(videoId, { ready: true, message: 'Ready for questions!' });
                     quality.isReady = true;
-                    logger_1.logger.info(`⚡ AI ready for ${videoId} after initial chunks indexed!`);
+                    logger_1.logger.info(`⚡ AI READY in ${aiReadyTime}ms for ${videoId} (target: <60000ms)`);
                 });
+                const indexingTime = Date.now() - indexingStart;
                 // Ensure status is set even if callback wasn't called
                 if (!this.readinessStatus.get(videoId)?.ready) {
+                    const aiReadyTime = Date.now() - startTime;
                     this.readinessStatus.set(videoId, { ready: true, message: 'Ready for questions!' });
                     quality.isReady = true;
+                    logger_1.logger.info(`⚡ AI READY in ${aiReadyTime}ms for ${videoId} (target: <60000ms)`);
                 }
-                logger_1.logger.info(`✅ Transcript chunks indexed in Qdrant for ${videoId}`);
+                logger_1.logger.info(`✅ Qdrant indexing completed in ${indexingTime}ms for ${videoId}`);
             }
             catch (qdrantError) {
                 logger_1.logger.warn(`Failed to index chunks in Qdrant:`, qdrantError);
@@ -239,11 +270,18 @@ class TranscriptOrchestrationService {
             // Save to PostgreSQL and Redis in BACKGROUND (non-blocking)
             // This doesn't affect chatbot readiness
             this.saveToStorageBackground(videoId, segments, quality);
-            logger_1.logger.info(`✅ Transcript ready for ${videoId}: ${wordCount} words, ${processingTime}ms`);
+            const totalTime = Date.now() - startTime;
+            logger_1.logger.info(`✅ Transcript ready for ${videoId}: ${wordCount} words, ${totalTime}ms total`);
         }
         else {
             logger_1.logger.error(`❌ All transcript methods failed for ${videoId}`);
-            this.readinessStatus.set(videoId, { ready: false, message: 'No transcript available' });
+            // ⚡ IMPORTANT: Still mark as "ready" because chatbot can answer using general knowledge
+            // This prevents the UI from waiting forever for a transcript that won't arrive
+            this.readinessStatus.set(videoId, {
+                ready: true,
+                message: 'Ready (no captions available - using AI knowledge)'
+            });
+            quality.isReady = true; // Can still answer questions!
         }
         return quality;
     }

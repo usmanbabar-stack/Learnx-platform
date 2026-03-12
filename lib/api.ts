@@ -473,6 +473,28 @@ class ApiService {
     }>>(`/transcripts/${videoId}/flashcards?${params}`, undefined, { timeout: 60000 }); // 60s timeout for AI generation
   }
 
+  // 📝 Get video quiz
+  async getVideoQuiz(videoId: string, count: number = 10) {
+    const params = new URLSearchParams({ count: count.toString() });
+    return this.fetchApi<ApiResponse<{
+      videoId: string;
+      videoTitle: string;
+      questions: Array<{
+        id: string;
+        question: string;
+        options: string[];
+        correctAnswer: number;
+        explanation: string;
+        difficulty: 'easy' | 'medium' | 'hard';
+        category: string;
+        timestamp?: string;
+      }>;
+      totalQuestions: number;
+      categories: string[];
+      generatedAt: string;
+    }>>(`/transcripts/${videoId}/quiz?${params}`, undefined, { timeout: 60000 }); // 60s timeout for AI generation
+  }
+
   // Get trending topics
   async getTrendingTopics() {
     return this.fetchApi<ApiResponse<{
@@ -700,6 +722,345 @@ class ApiService {
     return this.fetchApi(`/chat/${videoId}?userId=${userId}`, {
       method: 'DELETE'
     }, { retries: 1 });
+  }
+
+  // ============================================
+  // MOCK INTERVIEW API METHODS
+  // ============================================
+
+  /**
+   * Generate a new mock interview with custom questions
+   */
+  async generateMockInterview(params: {
+    field: string;
+    difficulty?: 'easy' | 'medium' | 'hard' | 'mixed';
+    questionCount?: number;
+    userId: number;
+  }): Promise<ApiResponse<{
+    sessionId: string;
+    field: string;
+    difficulty: string;
+    questions: Array<{
+      id: string;
+      question: string;
+      category: string;
+      difficulty: string;
+      tips: string[];
+      followUpQuestions: string[];
+      expectedKeyPoints: string[];
+    }>;
+    totalQuestions: number;
+    generatedAt: string;
+  }>> {
+    return this.fetchApi('/mock-interview/generate', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }, { timeout: 60000 }); // 60s timeout for AI generation
+  }
+
+  /**
+   * Evaluate user's answer to an interview question
+   */
+  async evaluateInterviewAnswer(params: {
+    sessionId: string;
+    questionId: string;
+    question: string;
+    userAnswer: string;
+    expectedKeyPoints: string[];
+    field: string;
+  }): Promise<ApiResponse<{
+    score: number;
+    strengths: string[];
+    improvements: string[];
+    detailedFeedback: string;
+    keyPointsCovered: string[];
+    keyPointsMissed: string[];
+    suggestedAnswer?: string;
+  }>> {
+    return this.fetchApi('/mock-interview/evaluate', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }, { timeout: 45000 }); // 45s timeout for evaluation
+  }
+
+  /**
+   * Get user's mock interview history
+   */
+  async getMockInterviewSessions(userId: number, limit: number = 10): Promise<ApiResponse<Array<{
+    sessionId: string;
+    userId: number;
+    field: string;
+    difficulty: string;
+    questions: any;
+    totalQuestions: number;
+    createdAt: string;
+    completedAt?: string;
+    overallScore?: number;
+  }>>> {
+    return this.fetchApi(`/mock-interview/sessions/${userId}?limit=${limit}`, undefined, { retries: 1 });
+  }
+
+  /**
+   * Get details of a specific interview session
+   */
+  async getMockInterviewSessionDetails(sessionId: string): Promise<ApiResponse<{
+    session: {
+      sessionId: string;
+      userId: number;
+      field: string;
+      difficulty: string;
+      questions: any;
+      totalQuestions: number;
+      createdAt: string;
+      completedAt?: string;
+      overallScore?: number;
+    };
+    responses: Array<{
+      id: number;
+      sessionId: string;
+      questionId: string;
+      questionText: string;
+      userAnswer: string;
+      feedback: any;
+      score: number;
+      answeredAt: string;
+    }>;
+  }>> {
+    return this.fetchApi(`/mock-interview/session/${sessionId}`, undefined, { retries: 1 });
+  }
+
+  /**
+   * Mark an interview session as complete
+   */
+  async completeMockInterviewSession(sessionId: string): Promise<ApiResponse<{
+    overallScore: number;
+  }>> {
+    return this.fetchApi('/mock-interview/complete', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    }, { retries: 1 });
+  }
+
+  /**
+   * Get user's mock interview statistics
+   */
+  async getMockInterviewStats(userId: number): Promise<ApiResponse<{
+    totalSessions: number;
+    averageScore: number;
+    totalQuestionsAnswered: number;
+    fieldDistribution: Array<{ field: string; count: number }>;
+  }>> {
+    return this.fetchApi(`/mock-interview/stats/${userId}`, undefined, { retries: 1 });
+  }
+
+  // ============================================
+  // TEACHER API
+  // ============================================
+
+  /**
+   * Get teacher's statistics
+   */
+  async getTeacherStats(): Promise<ApiResponse<{
+    stats: {
+      total_lectures: string;
+      completed_lectures: string;
+      processing_lectures: string;
+      failed_lectures: string;
+      total_views: string;
+      total_notes: string;
+      total_question_banks: string;
+    };
+  }>> {
+    return this.fetchApi('/teacher/stats', undefined, { retries: 1 });
+  }
+
+  /**
+   * Get all lectures for the authenticated teacher
+   */
+  async getTeacherLectures(): Promise<ApiResponse<{
+    lectures: Array<{
+      id: number;
+      teacher_id: number;
+      title: string;
+      description: string;
+      file_path: string;
+      file_size: number;
+      duration: string;
+      transcript_text: string;
+      status: 'processing' | 'completed' | 'failed' | 'draft';
+      subject: string;
+      difficulty: string;
+      visibility: string;
+      view_count: number;
+      created_at: string;
+      updated_at: string;
+      notes_count: string;
+      question_banks_count: string;
+    }>;
+    total: number;
+  }>> {
+    return this.fetchApi('/teacher/lectures', undefined, { retries: 1 });
+  }
+
+  /**
+   * Get a single lecture with notes and question banks
+   */
+  async getTeacherLecture(lectureId: number): Promise<ApiResponse<{
+    lecture: any;
+    notes: Array<{
+      id: number;
+      lecture_id: number;
+      content: string;
+      summary_type: 'detailed' | 'quick' | 'outline';
+      word_count: number;
+      created_at: string;
+    }>;
+    questionBanks: Array<{
+      id: number;
+      lecture_id: number;
+      questions: any;
+      difficulty: string;
+      total_questions: number;
+      question_type: string;
+      created_at: string;
+    }>;
+  }>> {
+    return this.fetchApi(`/teacher/lectures/${lectureId}`, undefined, { retries: 1 });
+  }
+
+  /**
+   * Upload a new lecture
+   */
+  async uploadLecture(formData: FormData, onProgress?: (percentage: number) => void): Promise<ApiResponse<{
+    lectureId: number;
+    transcriptWordCount: number;
+    duration: string;
+    notesGenerated: boolean;
+    questionsGenerated: boolean;
+  }>> {
+    const token = this.getAuthToken();
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    try {
+      const xhr = new XMLHttpRequest();
+
+      return new Promise((resolve, reject) => {
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable && onProgress) {
+            const percentage = (e.loaded / e.total) * 100;
+            onProgress(percentage);
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const result = JSON.parse(xhr.responseText);
+              resolve(result);
+            } catch {
+              reject(new Error('Invalid response from server'));
+            }
+          } else {
+            try {
+              const error = JSON.parse(xhr.responseText);
+              reject(new Error(error.message || 'Upload failed'));
+            } catch {
+              reject(new Error(`Upload failed with status ${xhr.status}`));
+            }
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          reject(new Error('Network error during upload'));
+        });
+
+        xhr.addEventListener('abort', () => {
+          reject(new Error('Upload was cancelled'));
+        });
+
+        xhr.open('POST', `${API_BASE_URL}/teacher/lectures/upload`);
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.send(formData);
+      });
+    } catch (error: any) {
+      throw new Error(error.message || 'Failed to upload lecture');
+    }
+  }
+
+  /**
+   * Update lecture metadata
+   */
+  async updateLecture(lectureId: number, data: {
+    title?: string;
+    description?: string;
+    subject?: string;
+    difficulty?: string;
+    visibility?: string;
+  }): Promise<ApiResponse<{ lecture: any }>> {
+    return this.fetchApi(`/teacher/lectures/${lectureId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }, { retries: 1 });
+  }
+
+  /**
+   * Delete a lecture
+   */
+  async deleteLecture(lectureId: number): Promise<ApiResponse<{ message: string }>> {
+    return this.fetchApi(`/teacher/lectures/${lectureId}`, {
+      method: 'DELETE',
+    }, { retries: 1 });
+  }
+
+  /**
+   * Download notes for a lecture
+   */
+  async downloadLectureNotes(lectureId: number, type: 'detailed' | 'quick' = 'detailed'): Promise<Blob> {
+    const token = this.getAuthToken();
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/teacher/lectures/${lectureId}/notes/download?type=${type}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to download notes');
+    }
+
+    return response.blob();
+  }
+
+  /**
+   * Download question bank for a lecture
+   */
+  async downloadLectureQuestions(lectureId: number): Promise<Blob> {
+    const token = this.getAuthToken();
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/teacher/lectures/${lectureId}/questions/download`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to download questions');
+    }
+
+    return response.blob();
   }
 }
 

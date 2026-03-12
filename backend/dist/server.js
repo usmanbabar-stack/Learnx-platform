@@ -63,6 +63,8 @@ const askRoutes_1 = __importDefault(require("./routes/askRoutes"));
 const authRoutes_1 = __importDefault(require("./routes/authRoutes"));
 const dashboardRoutes_1 = __importDefault(require("./routes/dashboardRoutes"));
 const progressRoutes_1 = __importDefault(require("./routes/progressRoutes"));
+const chatRoutes_1 = __importDefault(require("./routes/chatRoutes"));
+const mockInterviewRoutes_1 = __importDefault(require("./routes/mockInterviewRoutes"));
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3001;
 // Security middleware
@@ -152,6 +154,8 @@ app.use('/api/analytics', analyticsRoutes_1.default);
 app.use('/api/ask', askRoutes_1.default);
 app.use('/api/dashboard', dashboardRoutes_1.default);
 app.use('/api/progress', progressRoutes_1.default);
+app.use('/api/chat', chatRoutes_1.default);
+app.use('/api/mock-interview', mockInterviewRoutes_1.default);
 // Error handling middleware
 app.use(errorMiddleware_1.notFound);
 app.use(errorMiddleware_1.errorHandler);

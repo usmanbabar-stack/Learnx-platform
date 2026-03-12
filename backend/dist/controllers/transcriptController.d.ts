@@ -10,8 +10,30 @@ export declare class TranscriptController {
     searchTranscript(req: Request, res: Response): Promise<void>;
     /**
      * Generate transcript summary
+     * CACHING STRATEGY:
+     * 1. Check PostgreSQL (permanent cache - shared across all users)
+     * 2. If not found, generate with LLM and save to PostgreSQL
+     * 3. Redis used only for short-term session cache
      */
     generateSummary(req: Request, res: Response): Promise<void>;
+    /**
+     * Generate glossary from transcript
+     * CACHING STRATEGY:
+     * 1. Check PostgreSQL (permanent cache - shared across all users)
+     * 2. If not found, generate with LLM and save to PostgreSQL
+     */
+    generateGlossary(req: Request, res: Response): Promise<void>;
+    /**
+     * Generate flashcards from transcript
+     */
+    generateFlashcards(req: Request, res: Response): Promise<void>;
+    /**
+     * Generate quiz from transcript with PostgreSQL caching
+     * CACHING STRATEGY:
+     * 1. Check PostgreSQL (permanent cache - shared across all users)
+     * 2. If not found, generate with LLM and save to PostgreSQL
+     */
+    generateQuiz(req: Request, res: Response): Promise<void>;
     /**
      * Convert transcript to SRT format
      */
@@ -28,32 +50,6 @@ export declare class TranscriptController {
      * Calculate relevance score for search
      */
     private calculateRelevanceScore;
-    /**
-     * Generate text summary (simple extractive summarization)
-     */
-    private generateTextSummary;
-    /**
-     * Calculate word frequency
-     */
-    private calculateWordFrequency;
-    /**
-     * Score sentence for summary
-     */
-    private scoreSentence;
-    /**
-     * Extract key topics from text
-     */
-    private extractKeyTopics;
-    /**
-     * Find key moments in transcript
-     */
-    private findKeyMoments;
-    /**
-     * Helper methods (similar to other controllers)
-     */
-    private determineSubject;
-    private determineDifficulty;
-    private calculateQualityScore;
 }
 export declare const transcriptController: TranscriptController;
 //# sourceMappingURL=transcriptController.d.ts.map

@@ -17,9 +17,10 @@ function getClient(): GoogleGenerativeAI {
 }
 
 // SINGLE MODEL ONLY - to ensure max 1 API call per glossary request
-// gemini-2.5-flash has quota available
 const MODELS_TO_TRY = [
-  'gemini-2.5-flash',           // Only model - 1 API call max
+  'gemini-3-flash-preview',
+  'gemini-2.5-flash',
+  'gemini-3.1-flash-lite-preview',
 ];
 
 // NO RETRIES - to minimize API calls
@@ -85,7 +86,10 @@ export class GlossaryService {
     
     try {
       const result = await requestPromise;
-      this.cache.set(videoId, result);
+      // Only cache if we got actual terms
+      if (result.totalTerms > 0) {
+        this.cache.set(videoId, result);
+      }
       return result;
     } finally {
       this.inFlightRequests.delete(videoId);

@@ -29,9 +29,22 @@ import authRoutes from './routes/authRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import progressRoutes from './routes/progressRoutes';
 import chatRoutes from './routes/chatRoutes';
+import mockInterviewRoutes from './routes/mockInterviewRoutes';
+import teacherRoutes from './routes/teacherRoutes';
+import pastPaperRoutes from './routes/pastPaperRoutes';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.FRONTEND_URLS,
+  process.env.CORS_ORIGINS,
+]
+  .filter(Boolean)
+  .flatMap((value) => (value as string).split(','))
+  .map((value) => value.trim())
+  .filter(Boolean);
 
 // Security middleware
 app.use(helmet({
@@ -67,7 +80,17 @@ app.use(limiter);
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -130,6 +153,9 @@ app.use('/api/ask', askRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/progress', progressRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/mock-interview', mockInterviewRoutes);
+app.use('/api/teacher', teacherRoutes);
+app.use('/api/past-papers', pastPaperRoutes);
 
 // Error handling middleware
 app.use(notFound);
@@ -210,3 +236,4 @@ const startServer = async () => {
 startServer();
 
 export default app;
+

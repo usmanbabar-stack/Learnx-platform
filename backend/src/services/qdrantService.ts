@@ -53,12 +53,17 @@ export class QdrantService {
 
       // Index initial chunks immediately
       const initialTexts = initialChunks.map(c => c.text);
-      const initialEmbeddings = await getEmbeddings(initialTexts, process.env.EMBEDDING_MODEL || 'text-embedding-004');
+      const initialEmbeddings = await getEmbeddings(initialTexts, process.env.EMBEDDING_MODEL || 'gemini-embedding-001');
 
-      if (initialEmbeddings.length === initialChunks.length) {
-        const initialPoints = initialChunks.map((chunk, idx) => ({
+      // Filter out chunks with empty embeddings to prevent Qdrant dimension errors
+      const validInitial = initialChunks
+        .map((chunk, idx) => ({ chunk, embedding: initialEmbeddings[idx] }))
+        .filter(item => item.embedding && item.embedding.length > 0);
+
+      if (validInitial.length > 0) {
+        const initialPoints = validInitial.map(({ chunk, embedding }) => ({
           id: uuidv4(),
-          vector: initialEmbeddings[idx],
+          vector: embedding,
           payload: {
             videoId,
             text: chunk.text,
@@ -73,7 +78,7 @@ export class QdrantService {
           points: initialPoints
         });
 
-        logger.info(`✅ Initial ${initialChunks.length} chunks indexed for ${videoId} - AI READY!`);
+        logger.info(`✅ Initial ${validInitial.length}/${initialChunks.length} chunks indexed for ${videoId} - AI READY!`);
         
         // Notify caller that initial indexing is complete
         if (onInitialReady) {
@@ -99,16 +104,21 @@ export class QdrantService {
   private async indexRemainingChunks(videoId: string, chunks: TranscriptChunk[]): Promise<void> {
     try {
       const texts = chunks.map(c => c.text);
-      const embeddings = await getEmbeddings(texts, process.env.EMBEDDING_MODEL || 'text-embedding-004');
+      const embeddings = await getEmbeddings(texts, process.env.EMBEDDING_MODEL || 'gemini-embedding-001');
 
-      if (embeddings.length !== chunks.length) {
-        logger.warn(`Background embedding mismatch: ${embeddings.length} vs ${chunks.length}`);
+      // Filter out chunks with empty embeddings
+      const valid = chunks
+        .map((chunk, idx) => ({ chunk, embedding: embeddings[idx] }))
+        .filter(item => item.embedding && item.embedding.length > 0);
+
+      if (valid.length === 0) {
+        logger.warn(`No valid embeddings for background indexing of ${videoId}`);
         return;
       }
 
-      const points = chunks.map((chunk, idx) => ({
+      const points = valid.map(({ chunk, embedding }) => ({
         id: uuidv4(),
-        vector: embeddings[idx],
+        vector: embedding,
         payload: {
           videoId,
           text: chunk.text,
@@ -128,7 +138,7 @@ export class QdrantService {
         });
       }
 
-      logger.info(`✅ Background indexed ${chunks.length} additional chunks for ${videoId}`);
+      logger.info(`✅ Background indexed ${valid.length}/${chunks.length} additional chunks for ${videoId}`);
     } catch (error) {
       logger.error(`Background indexing error for ${videoId}:`, error);
     }
@@ -140,19 +150,24 @@ export class QdrantService {
     try {
       // Generate embeddings for all chunks in batch
       const texts = chunks.map(c => c.text);
-      const embeddings = await getEmbeddings(texts, process.env.EMBEDDING_MODEL || 'text-embedding-004');
+      const embeddings = await getEmbeddings(texts, process.env.EMBEDDING_MODEL || 'gemini-embedding-001');
       
-      if (embeddings.length !== chunks.length) {
-        throw new Error(`Embedding count mismatch: expected ${chunks.length}, got ${embeddings.length}`);
+      // Filter out chunks with empty embeddings
+      const valid = chunks
+        .map((chunk, idx) => ({ chunk, embedding: embeddings[idx] }))
+        .filter(item => item.embedding && item.embedding.length > 0);
+
+      if (valid.length === 0) {
+        throw new Error('All embeddings returned empty - check embedding model configuration');
       }
 
       // Delete existing chunks for this video (to allow updates)
       await this.deleteChunksByVideoId(videoId);
 
       // Prepare points for batch insert (use UUID for point IDs)
-      const points = chunks.map((chunk, idx) => ({
-        id: uuidv4(), // Generate unique UUID for each point
-        vector: embeddings[idx],
+      const points = valid.map(({ chunk, embedding }) => ({
+        id: uuidv4(),
+        vector: embedding,
         payload: {
           videoId,
           text: chunk.text,
@@ -172,7 +187,7 @@ export class QdrantService {
         });
       }
 
-      logger.info(`✅ Upserted ${chunks.length} chunks for video ${videoId} into Qdrant`);
+      logger.info(`✅ Upserted ${valid.length}/${chunks.length} chunks for video ${videoId} into Qdrant`);
     } catch (error) {
       logger.error(`Failed to upsert chunks for ${videoId}:`, error);
       throw error;
@@ -187,7 +202,7 @@ export class QdrantService {
   ): Promise<Array<{ chunk: TranscriptChunk; score: number }>> {
     try {
       // Generate query embedding
-      const queryEmbeddings = await getEmbeddings([query], process.env.EMBEDDING_MODEL || 'text-embedding-004');
+      const queryEmbeddings = await getEmbeddings([query], process.env.EMBEDDING_MODEL || 'gemini-embedding-001');
       if (queryEmbeddings.length === 0 || queryEmbeddings[0].length === 0) {
         logger.warn('Failed to generate query embedding');
         return [];

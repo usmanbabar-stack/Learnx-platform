@@ -230,19 +230,15 @@ Provide a detailed, helpful answer based on the transcript. If the exact topic i
 }
 
 // 🚀 OPTIMIZED: Batch embedding helper with parallel processing
-export async function getEmbeddings(texts: string[], modelName: string = "text-embedding-004"): Promise<number[][]> {
+export async function getEmbeddings(texts: string[], modelName: string = "gemini-embedding-001"): Promise<number[][]> {
   if (texts.length === 0) return [];
   
   try {
     const genAI = getClient();
     const embModel = genAI.getGenerativeModel({ model: modelName });
     
-    // ⚡ OPTIMIZED: Increased from 10 to 25 for faster throughput
-    // Gemini embedding API can handle higher concurrency
     const BATCH_SIZE = 25;
     const results: number[][] = [];
-    
-    // ⚡ Process multiple batches concurrently (up to 3 at a time)
     const CONCURRENT_BATCHES = 3;
     const batches: string[][] = [];
     
@@ -254,13 +250,17 @@ export async function getEmbeddings(texts: string[], modelName: string = "text-e
       const concurrentBatches = batches.slice(b, b + CONCURRENT_BATCHES);
       
       const batchPromises = concurrentBatches.map(async (batch) => {
-        // Process items within each batch in parallel
         const itemPromises = batch.map(async (t) => {
           try {
-            const r = await embModel.embedContent({ content: { parts: [{ text: t }] } as any });
-            return (r as any)?.embedding?.values || (r as any)?.embedding?.value || [];
+            const r = await embModel.embedContent(t);
+            const values = r?.embedding?.values;
+            if (!values || values.length === 0) {
+              logger.warn(`Embedding returned empty values for text: "${t.substring(0, 50)}..."`);
+              return [];
+            }
+            return values;
           } catch (e) {
-            logger.warn(`Single embedding failed, returning empty: ${e}`);
+            logger.warn(`Single embedding failed: ${e}`);
             return [];
           }
         });
@@ -273,9 +273,14 @@ export async function getEmbeddings(texts: string[], modelName: string = "text-e
       }
     }
     
+    const emptyCount = results.filter(r => r.length === 0).length;
+    if (emptyCount > 0) {
+      logger.warn(`${emptyCount}/${results.length} embeddings returned empty`);
+    }
+    
     return results;
   } catch (e) {
-    logger.warn("Embedding generation failed: %o", e);
+    logger.error("Embedding generation failed: %o", e);
     return texts.map(() => []);
   }
 }

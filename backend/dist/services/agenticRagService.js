@@ -3,6 +3,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.agenticRagService = exports.AgenticRagService = void 0;
 const logger_1 = require("../utils/logger");
 const geminiService_1 = require("./geminiService");
+const generative_ai_1 = require("@google/generative-ai");
+// Get Gemini client for fast classification
+function getGeminiClient() {
+    const key = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || process.env.GOOGLE_CLOUD_API_KEY || "";
+    if (!key)
+        throw new Error("Missing Gemini API key");
+    return new generative_ai_1.GoogleGenerativeAI(key);
+}
 class AgenticRagService {
     constructor() { }
     static getInstance() {
@@ -10,6 +18,81 @@ class AgenticRagService {
             AgenticRagService.instance = new AgenticRagService();
         }
         return AgenticRagService.instance;
+    }
+    /**
+     * 🛡️ PRE-FILTER: Classify message BEFORE any expensive RAG processing
+     * Uses fast Gemini Flash model for robust classification
+     */
+    async classifyMessage(message, videoTitle) {
+        const startTime = Date.now();
+        // Quick pattern check for obvious cases (saves API call)
+        const quickCheck = this.quickPatternCheck(message);
+        if (quickCheck) {
+            logger_1.logger.info(`Quick pattern classification: ${quickCheck.category} in ${Date.now() - startTime}ms`);
+            return quickCheck;
+        }
+        try {
+            const client = getGeminiClient();
+            const model = client.getGenerativeModel({
+                model: "gemini-2.5-flash-lite", // Lightweight model for fast classification
+                generationConfig: {
+                    maxOutputTokens: 100,
+                    temperature: 0.1, // Low temperature for consistent classification
+                }
+            });
+            const prompt = `You are a message classifier for an educational video chatbot. The chatbot helps students learn from video: "${videoTitle}"
+
+Classify this user message into ONE category:
+
+MESSAGE: "${message}"
+
+Categories:
+1. EDUCATIONAL - Questions about video content, learning concepts, explanations, summaries, topics discussed in the video
+2. GREETING - Simple greetings like hi, hello, thanks, bye (respond: valid but no RAG needed)
+3. OFF_TOPIC - Questions unrelated to education/video (personal questions, jokes, weather, news, random chat)
+4. INAPPROPRIATE - Profanity, abuse, harassment, harmful content, offensive language
+
+Respond with ONLY ONE WORD: EDUCATIONAL, GREETING, OFF_TOPIC, or INAPPROPRIATE`;
+            const result = await model.generateContent(prompt);
+            const response = result.response.text().trim().toUpperCase();
+            const elapsed = Date.now() - startTime;
+            logger_1.logger.info(`LLM message classification: ${response} in ${elapsed}ms`);
+            if (response.includes('EDUCATIONAL')) {
+                return { isValid: true, category: 'educational', reason: 'Educational question about video' };
+            }
+            else if (response.includes('GREETING')) {
+                return { isValid: true, category: 'greeting', reason: 'Greeting message' };
+            }
+            else if (response.includes('INAPPROPRIATE')) {
+                return { isValid: false, category: 'inappropriate', reason: 'Inappropriate content detected' };
+            }
+            else if (response.includes('OFF_TOPIC')) {
+                return { isValid: false, category: 'off_topic', reason: 'Question not related to video' };
+            }
+            // Default to educational if unclear (benefit of doubt)
+            return { isValid: true, category: 'unclear', reason: 'Could not classify, treating as educational' };
+        }
+        catch (error) {
+            logger_1.logger.warn(`Message classification failed, defaulting to educational:`, error);
+            // On error, allow the message through (don't block legitimate questions)
+            return { isValid: true, category: 'unclear', reason: 'Classification failed, allowing through' };
+        }
+    }
+    /**
+     * Quick pattern check for obvious cases (no API call needed)
+     */
+    quickPatternCheck(message) {
+        const m = message.toLowerCase().trim();
+        // Very short messages that are just greetings
+        if (/^(hi|hey|hello|thanks?|thank\s*you|bye|ok|okay)[\s!.]*$/i.test(m)) {
+            return { isValid: true, category: 'greeting', reason: 'Simple greeting detected' };
+        }
+        // Obvious profanity (basic check, LLM handles complex cases)
+        const profanityPatterns = /\b(fuck|shit|ass|bitch|damn|crap|bastard|dick|cock|pussy)\b/i;
+        if (profanityPatterns.test(m)) {
+            return { isValid: false, category: 'inappropriate', reason: 'Profanity detected' };
+        }
+        return null; // Need LLM classification
     }
     async analyzeIntent(question, videoTitle) {
         const rulesBasedIntent = this.rulesBasedClassification(question);
@@ -27,6 +110,48 @@ class AgenticRagService {
     }
     rulesBasedClassification(question) {
         const q = question.toLowerCase().trim();
+        // 🎯 GREETING/CONVERSATIONAL PATTERNS - Handle first to skip expensive processing
+        const greetingPatterns = [
+            /^(hi|hey|hello|hii+|heyy+|helloo+)[\s!.]*$/i,
+            /^(good\s*(morning|afternoon|evening|night))[\s!.]*$/i,
+            /^(what'?s\s*up|sup|yo|howdy)[\s!.]*$/i,
+            /^(how\s*(are|r)\s*(you|u|ya))[\s!?]*$/i,
+            /^(thanks|thank\s*you|thx|ty)[\s!.]*$/i,
+            /^(bye|goodbye|see\s*you|later|cya)[\s!.]*$/i,
+            /^(ok|okay|cool|nice|great|awesome|alright)[\s!.]*$/i,
+            /^(yes|no|yeah|yep|nope|yup)[\s!.]*$/i,
+        ];
+        for (const pattern of greetingPatterns) {
+            if (pattern.test(q)) {
+                return {
+                    intent: 'greeting',
+                    requiresRetrieval: false,
+                    requiresFullTranscript: false,
+                    confidence: 0.99,
+                    reasoning: 'Pattern matched: conversational/greeting message'
+                };
+            }
+        }
+        // 🚫 OFF-TOPIC PATTERNS - Clearly not about the video
+        const offTopicPatterns = [
+            /^(who\s*(are|r)\s*(you|u))[\s?]*$/i,
+            /^(what\s*(are|r)\s*(you|u))[\s?]*$/i,
+            /^(what'?s\s*your\s*name)[\s?]*$/i,
+            /^(tell\s*me\s*(about\s*yourself|a\s*joke|something\s*funny))/i,
+            /^(can\s*you\s*(help|assist)\s*me\s*with\s*(homework|assignment|project|code))/i,
+            /weather|news|sports|politics|games?|movie|music|recipe|cook/i,
+        ];
+        for (const pattern of offTopicPatterns) {
+            if (pattern.test(q)) {
+                return {
+                    intent: 'off_topic',
+                    requiresRetrieval: false,
+                    requiresFullTranscript: false,
+                    confidence: 0.95,
+                    reasoning: 'Pattern matched: off-topic question not related to video'
+                };
+            }
+        }
         const summaryPatterns = [
             /^(give|provide|show|tell).*(summary|overview|gist|brief|main points?|key takeaways?)/i,
             /^(what('?s| is).*(this )?video (about|discussing|covering))/i,

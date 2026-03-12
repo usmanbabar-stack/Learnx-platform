@@ -1,6 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.videoRepository = exports.VideoRepository = void 0;
+exports.getSummaryByVideoId = getSummaryByVideoId;
+exports.saveSummary = saveSummary;
+exports.getGlossaryByVideoId = getGlossaryByVideoId;
+exports.saveGlossary = saveGlossary;
+exports.deleteGlossary = deleteGlossary;
+exports.getQuizByVideoId = getQuizByVideoId;
+exports.saveQuiz = saveQuiz;
+exports.getChatHistory = getChatHistory;
+exports.saveChatMessage = saveChatMessage;
+exports.clearChatHistory = clearChatHistory;
 const postgres_1 = require("../config/postgres");
 const logger_1 = require("../utils/logger");
 class VideoRepository {
@@ -310,4 +320,193 @@ class VideoRepository {
 }
 exports.VideoRepository = VideoRepository;
 exports.videoRepository = new VideoRepository();
+// Summary Repository functions
+async function getSummaryByVideoId(videoId) {
+    const pool = (0, postgres_1.getPostgresPool)();
+    const query = `SELECT * FROM video_summaries WHERE video_id = $1`;
+    const result = await pool.query(query, [videoId]);
+    if (result.rows.length === 0)
+        return null;
+    const row = result.rows[0];
+    return {
+        videoId: row.video_id,
+        overview: row.overview,
+        keyPoints: row.key_points || [],
+        mainTopics: row.main_topics || [],
+        keyTimestamps: row.key_timestamps || [],
+        targetAudience: row.target_audience,
+        difficulty: row.difficulty,
+        estimatedWatchTime: row.estimated_watch_time,
+        generationTimeMs: row.generation_time_ms,
+        createdAt: row.created_at
+    };
+}
+async function saveSummary(summary) {
+    const pool = (0, postgres_1.getPostgresPool)();
+    const query = `
+    INSERT INTO video_summaries (
+      video_id, overview, key_points, main_topics, key_timestamps,
+      target_audience, difficulty, estimated_watch_time, generation_time_ms
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    ON CONFLICT (video_id) DO UPDATE SET
+      overview = EXCLUDED.overview,
+      key_points = EXCLUDED.key_points,
+      main_topics = EXCLUDED.main_topics,
+      key_timestamps = EXCLUDED.key_timestamps,
+      target_audience = EXCLUDED.target_audience,
+      difficulty = EXCLUDED.difficulty,
+      estimated_watch_time = EXCLUDED.estimated_watch_time,
+      generation_time_ms = EXCLUDED.generation_time_ms,
+      updated_at = CURRENT_TIMESTAMP
+  `;
+    await pool.query(query, [
+        summary.videoId,
+        summary.overview,
+        JSON.stringify(summary.keyPoints),
+        JSON.stringify(summary.mainTopics),
+        JSON.stringify(summary.keyTimestamps),
+        summary.targetAudience,
+        summary.difficulty,
+        summary.estimatedWatchTime,
+        summary.generationTimeMs || null
+    ]);
+    logger_1.logger.info(`Saved summary to database for video: ${summary.videoId}`);
+}
+// Glossary Repository functions
+async function getGlossaryByVideoId(videoId) {
+    const pool = (0, postgres_1.getPostgresPool)();
+    const query = `SELECT * FROM video_glossaries WHERE video_id = $1`;
+    const result = await pool.query(query, [videoId]);
+    if (result.rows.length === 0)
+        return null;
+    const row = result.rows[0];
+    return {
+        videoId: row.video_id,
+        terms: row.terms || [],
+        categories: row.categories || [],
+        totalTerms: row.total_terms,
+        generationTimeMs: row.generation_time_ms,
+        createdAt: row.created_at
+    };
+}
+async function saveGlossary(glossary) {
+    const pool = (0, postgres_1.getPostgresPool)();
+    const query = `
+    INSERT INTO video_glossaries (
+      video_id, terms, categories, total_terms, generation_time_ms
+    ) VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT (video_id) DO UPDATE SET
+      terms = EXCLUDED.terms,
+      categories = EXCLUDED.categories,
+      total_terms = EXCLUDED.total_terms,
+      generation_time_ms = EXCLUDED.generation_time_ms,
+      updated_at = CURRENT_TIMESTAMP
+  `;
+    await pool.query(query, [
+        glossary.videoId,
+        JSON.stringify(glossary.terms),
+        JSON.stringify(glossary.categories),
+        glossary.totalTerms,
+        glossary.generationTimeMs || null
+    ]);
+    logger_1.logger.info(`Saved glossary to database for video: ${glossary.videoId}`);
+}
+// Delete glossary from database (for clearing failed generations)
+async function deleteGlossary(videoId) {
+    const pool = (0, postgres_1.getPostgresPool)();
+    const result = await pool.query('DELETE FROM video_glossaries WHERE video_id = $1', [videoId]);
+    if (result.rowCount && result.rowCount > 0) {
+        logger_1.logger.info(`Deleted glossary from database for video: ${videoId}`);
+        return true;
+    }
+    return false;
+}
+// Quiz Repository functions
+async function getQuizByVideoId(videoId) {
+    const pool = (0, postgres_1.getPostgresPool)();
+    const query = `SELECT * FROM video_quizzes WHERE video_id = $1`;
+    const result = await pool.query(query, [videoId]);
+    if (result.rows.length === 0)
+        return null;
+    const row = result.rows[0];
+    return {
+        videoId: row.video_id,
+        questions: row.questions || [],
+        totalQuestions: row.total_questions,
+        categories: row.categories || [],
+        generationTimeMs: row.generation_time_ms,
+        createdAt: row.created_at
+    };
+}
+async function saveQuiz(quiz) {
+    const pool = (0, postgres_1.getPostgresPool)();
+    const query = `
+    INSERT INTO video_quizzes (
+      video_id, questions, total_questions, categories, generation_time_ms
+    ) VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT (video_id) DO UPDATE SET
+      questions = EXCLUDED.questions,
+      total_questions = EXCLUDED.total_questions,
+      categories = EXCLUDED.categories,
+      generation_time_ms = EXCLUDED.generation_time_ms,
+      updated_at = CURRENT_TIMESTAMP
+  `;
+    await pool.query(query, [
+        quiz.videoId,
+        JSON.stringify(quiz.questions),
+        quiz.totalQuestions,
+        JSON.stringify(quiz.categories),
+        quiz.generationTimeMs || null
+    ]);
+    logger_1.logger.info(`Saved quiz to database for video: ${quiz.videoId}`);
+}
+// Get chat history for a user-video combination (last 10 messages = 5 pairs)
+async function getChatHistory(userId, videoId) {
+    const pool = (0, postgres_1.getPostgresPool)();
+    const query = `
+    SELECT id, user_id, video_id, message_type, content, video_time, created_at
+    FROM chat_history
+    WHERE user_id = $1 AND video_id = $2
+    ORDER BY created_at ASC
+    LIMIT 10
+  `;
+    const result = await pool.query(query, [userId, videoId]);
+    return result.rows.map(row => ({
+        id: row.id,
+        userId: row.user_id,
+        videoId: row.video_id,
+        messageType: row.message_type,
+        content: row.content,
+        videoTime: row.video_time || 0,
+        createdAt: row.created_at
+    }));
+}
+// Save a chat message
+async function saveChatMessage(userId, videoId, messageType, content, videoTime = 0) {
+    const pool = (0, postgres_1.getPostgresPool)();
+    const query = `
+    INSERT INTO chat_history (user_id, video_id, message_type, content, video_time)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING id, user_id, video_id, message_type, content, video_time, created_at
+  `;
+    const result = await pool.query(query, [userId, videoId, messageType, content, videoTime]);
+    const row = result.rows[0];
+    return {
+        id: row.id,
+        userId: row.user_id,
+        videoId: row.video_id,
+        messageType: row.message_type,
+        content: row.content,
+        videoTime: row.video_time || 0,
+        createdAt: row.created_at
+    };
+}
+// Clear chat history for a user-video combination
+async function clearChatHistory(userId, videoId) {
+    const pool = (0, postgres_1.getPostgresPool)();
+    const result = await pool.query('DELETE FROM chat_history WHERE user_id = $1 AND video_id = $2', [userId, videoId]);
+    const deletedCount = result.rowCount || 0;
+    logger_1.logger.info(`Cleared ${deletedCount} chat messages for user ${userId}, video ${videoId}`);
+    return deletedCount;
+}
 //# sourceMappingURL=videoRepository.js.map

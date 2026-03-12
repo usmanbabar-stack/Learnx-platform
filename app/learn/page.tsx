@@ -181,11 +181,13 @@ export default function LearnPage() {
 
   return (
     <AuthGuard>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background relative">
+        <div className="absolute inset-0 mesh-gradient pointer-events-none" />
+        <div className="relative z-10">
         <Navigation />
         
         {/* Header */}
-        <div className="border-b border-border bg-card/50 backdrop-blur-sm">
+        <div className="border-b border-border/50 glass">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div className="flex items-center justify-between">
               <div>
@@ -199,9 +201,9 @@ export default function LearnPage() {
         </div>
 
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {/* 🛡️ Offline/Warning Banners */}
+          {/* Offline/Warning Banners */}
           {!isOnline && (
-            <Alert className="mb-4 border-yellow-500/50 bg-yellow-500/10">
+            <Alert className="mb-4 border-yellow-500/50 bg-yellow-500/10 backdrop-blur-sm">
               <WifiOff className="h-4 w-4 text-yellow-600" />
               <AlertDescription className="font-open-sans text-yellow-600">
                 You are offline. Search results may be limited.
@@ -210,7 +212,7 @@ export default function LearnPage() {
           )}
           
           {isOfflineResults && (
-            <Alert className="mb-4 border-blue-500/50 bg-blue-500/10">
+            <Alert className="mb-4 border-blue-500/50 bg-blue-500/10 backdrop-blur-sm">
               <AlertDescription className="font-open-sans text-blue-600">
                 Showing sample results. Connect to the internet for live search.
               </AlertDescription>
@@ -218,7 +220,7 @@ export default function LearnPage() {
           )}
 
           {/* Search Bar */}
-          <Card className="mb-8">
+          <Card className="mb-8 border-border/50 bg-card/80 backdrop-blur-sm">
             <CardContent className="pt-6">
               <form onSubmit={handleSearch} className="flex gap-4">
                 <div className="relative flex-1">
@@ -230,23 +232,23 @@ export default function LearnPage() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onFocus={() => setShowSuggestions(true)}
-                    className="pl-10 font-open-sans"
+                    className="pl-10 font-open-sans h-11 bg-muted/50 border-border/50 focus:border-primary/50 focus:ring-primary/20"
                   />
                   
                   {/* Search History Suggestions */}
                   {showSuggestions && searchHistory.length > 0 && (
                     <div 
                       ref={suggestionsRef}
-                      className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50"
+                      className="absolute top-full left-0 right-0 mt-1 bg-card/95 backdrop-blur-xl border border-border/50 rounded-xl shadow-xl z-50"
                     >
-                      <div className="p-2 border-b border-border">
+                      <div className="p-2 border-b border-border/50">
                         <span className="text-xs text-muted-foreground font-medium">Recent Searches</span>
                       </div>
                       {searchHistory.map((query, idx) => (
                         <div
                           key={idx}
                           onClick={() => handleSuggestionClick(query)}
-                          className="flex items-center justify-between px-3 py-2 hover:bg-muted cursor-pointer group"
+                          className="flex items-center justify-between px-3 py-2 hover:bg-muted/50 cursor-pointer group"
                         >
                           <div className="flex items-center gap-2">
                             <History className="w-4 h-4 text-muted-foreground" />
@@ -263,7 +265,7 @@ export default function LearnPage() {
                     </div>
                   )}
                 </div>
-                <Button type="submit" disabled={loading} className="font-open-sans">
+                <Button type="submit" disabled={loading} className="font-open-sans font-semibold bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 shadow-md shadow-primary/20 h-11 px-6">
                   {loading ? "Searching..." : "Search"}
                 </Button>
               </form>
@@ -277,7 +279,7 @@ export default function LearnPage() {
           {loading ? (
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {[1, 2, 3, 4, 5, 6].map((i) => (
-                <Card key={i} className="overflow-hidden animate-pulse">
+                <Card key={i} className="overflow-hidden animate-pulse border-border/50 bg-card/60">
                   <div className="aspect-video bg-muted" />
                   <CardHeader>
                     <div className="h-6 bg-muted rounded mb-2" />
@@ -294,7 +296,7 @@ export default function LearnPage() {
                   href={`/learn/${video.videoId}`}
                   className="group"
                 >
-                  <Card className="overflow-hidden hover:shadow-lg transition-shadow h-full">
+                  <Card className="overflow-hidden hover-lift h-full border-border/50 bg-card/80 backdrop-blur-sm">
                     <div className="aspect-video relative overflow-hidden bg-muted">
                       <img
                         src={video.thumbnail}
@@ -302,18 +304,18 @@ export default function LearnPage() {
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       />
                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <div className="w-16 h-16 rounded-full bg-primary flex items-center justify-center">
-                          <Play className="w-8 h-8 text-primary-foreground ml-1" />
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-chart-5 flex items-center justify-center shadow-xl">
+                          <Play className="w-8 h-8 text-white ml-1" />
                         </div>
                       </div>
                       {video.duration && (
-                        <Badge className="absolute bottom-2 right-2 bg-black/80 text-white">
+                        <Badge className="absolute bottom-2 right-2 bg-black/80 text-white border-0">
                           {formatDuration(video.duration)}
                         </Badge>
                       )}
                     </div>
                     <CardHeader>
-                      <CardTitle className="font-montserrat line-clamp-2 group-hover:text-primary transition-colors">
+                      <CardTitle className="font-montserrat line-clamp-2 group-hover:text-primary transition-colors text-base">
                         {video.title}
                       </CardTitle>
                       <CardDescription className="font-open-sans line-clamp-2">
@@ -336,10 +338,10 @@ export default function LearnPage() {
               ))}
             </div>
           ) : (
-            <Card className="text-center py-12">
+            <Card className="text-center py-12 border-border/50 bg-card/80 backdrop-blur-sm">
               <CardContent>
-                <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Search className="w-8 h-8 text-muted-foreground" />
+                <div className="w-16 h-16 bg-gradient-to-br from-primary/20 to-chart-5/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Search className="w-8 h-8 text-primary" />
                 </div>
                 <h3 className="text-lg font-bold font-montserrat mb-2">
                   Search for Learning Videos
@@ -351,6 +353,7 @@ export default function LearnPage() {
             </Card>
           )}
         </main>
+        </div>
       </div>
     </AuthGuard>
   );

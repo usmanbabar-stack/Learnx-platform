@@ -155,7 +155,8 @@ class YouTubeScraperService {
                 }
             });
             // Navigate to YouTube search with optimized parameters
-            const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ%253D%253D`;
+            // sp=EgIQAQ filters for: Videos only
+            const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ`;
             await page.goto(searchUrl, {
                 waitUntil: 'domcontentloaded', // Faster than networkidle0
                 timeout: 15000 // Reduced timeout
@@ -470,7 +471,8 @@ class YouTubeScraperService {
     async fastSearch(query, limit) {
         try {
             const startTime = Date.now();
-            const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ%253D%253D`;
+            // sp=EgIQAQ filters for: Videos only
+            const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ`;
             const response = await axios_1.default.get(searchUrl, {
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

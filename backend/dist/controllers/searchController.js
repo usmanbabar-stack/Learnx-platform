@@ -6,6 +6,59 @@ const youtubeScraperService_1 = require("../services/youtubeScraperService");
 const logger_1 = require("../utils/logger");
 const express_validator_1 = require("express-validator");
 const redis_1 = require("../config/redis");
+// ============================================
+// STRICT EDUCATIONAL FILTER
+// ============================================
+// Educational keywords that MUST be present in title (at least one)
+const EDUCATIONAL_KEYWORDS = [
+    'tutorial', 'explained', 'lecture', 'course', 'lesson', 'learn',
+    'introduction', 'guide', 'how to', 'what is', 'understanding',
+    'beginner', 'advanced', 'complete', 'full course', 'crash course',
+    'algorithm', 'programming', 'coding', 'development', 'engineering',
+    'data structure', 'computer science', 'in hindi', 'in urdu', 'in english',
+    'step by step', 'example', 'practice', 'solution', 'interview',
+    'gate', 'exam', 'mcq', 'question', 'basics', 'fundamentals',
+    'network', 'security', 'database', 'web', 'machine learning',
+    'part 1', 'part 2', 'part-1', 'part-2', 'chapter', 'module',
+    'encryption', 'decryption', 'cryptography', 'protocol',
+];
+// Non-educational patterns - strictly block these
+const BLOCKED_PATTERNS = [
+    /\b(official\s*(music\s*)?video|lyric\s*video|audio\s*song)\b/i,
+    /\b(full\s*movie|official\s*trailer|teaser|promo)\b/i,
+    /\bvevo\b/i,
+    /\b(feat\.|ft\.|starring)\b/i,
+    /\b(remix|cover|live\s*performance|concert|unplugged)\b/i,
+    /\b(episode\s*\d+|s\d+\s*e\d+|ep\s*\d+)\b/i, // TV shows
+    /\b(movie|film|drama|series|season)\b/i,
+    /\b(song|album|music|singer|artist|band)\b/i,
+    /\b(trailer|teaser|behind\s*the\s*scenes)\b/i,
+];
+/**
+ * STRICT filter - only allows educational content
+ * Requires at least one educational keyword AND no blocked patterns
+ */
+function filterEducationalResults(results) {
+    return results.filter(result => {
+        const title = result.title.toLowerCase();
+        const channel = result.channel.toLowerCase();
+        // Check for blocked patterns - reject immediately
+        for (const pattern of BLOCKED_PATTERNS) {
+            if (pattern.test(title) || pattern.test(channel)) {
+                logger_1.logger.debug(`Blocked non-educational: ${title}`);
+                return false;
+            }
+        }
+        // MUST have at least one educational keyword
+        const hasEducationalKeyword = EDUCATIONAL_KEYWORDS.some(kw => title.includes(kw));
+        if (!hasEducationalKeyword) {
+            logger_1.logger.debug(`No educational keyword found: ${title}`);
+            return false;
+        }
+        return true;
+    });
+}
+// ============================================
 class SearchController {
     /**
      * Main search endpoint
@@ -107,11 +160,13 @@ class SearchController {
                 uploadDate: upload_date,
                 sortBy: sort_by
             }, Number(limit));
-            logger_1.logger.info(`YouTube scraping took ${Date.now() - startScrape}ms`);
+            // Apply fast educational filter (removes music, movies, etc.)
+            const filteredResults = filterEducationalResults(youtubeResults);
+            logger_1.logger.info(`YouTube scraping took ${Date.now() - startScrape}ms, filtered ${youtubeResults.length} -> ${filteredResults.length}`);
             // Decide whether to persist scraped results now or only when user watches
             const saveOnSearch = (process.env.SAVE_SCRAPED_ON_SEARCH || 'false').toLowerCase() === 'true';
-            // Just use the scraped results directly for maximum speed
-            const aggregatedResults = youtubeResults;
+            // Just use the filtered results directly for maximum speed
+            const aggregatedResults = filteredResults;
             const source = 'youtube';
             const newVideosProcessed = 0;
             const results = {

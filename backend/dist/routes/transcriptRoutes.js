@@ -28,5 +28,8 @@ const searchTranscriptValidation = [
 router.get('/:videoId', videoIdValidation, transcriptController_1.transcriptController.getTranscript.bind(transcriptController_1.transcriptController));
 router.get('/:videoId/search', searchTranscriptValidation, transcriptController_1.transcriptController.searchTranscript.bind(transcriptController_1.transcriptController));
 router.get('/:videoId/summary', videoIdValidation, transcriptController_1.transcriptController.generateSummary.bind(transcriptController_1.transcriptController));
+router.get('/:videoId/glossary', videoIdValidation, transcriptController_1.transcriptController.generateGlossary.bind(transcriptController_1.transcriptController));
+router.get('/:videoId/flashcards', videoIdValidation, transcriptController_1.transcriptController.generateFlashcards.bind(transcriptController_1.transcriptController));
+router.get('/:videoId/quiz', videoIdValidation, transcriptController_1.transcriptController.generateQuiz.bind(transcriptController_1.transcriptController));
 exports.default = router;
 //# sourceMappingURL=transcriptRoutes.js.map

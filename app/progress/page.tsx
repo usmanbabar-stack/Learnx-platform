@@ -345,13 +345,15 @@ export default function ProgressPage() {
 
   return (
     <AuthGuard>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background relative">
+        <div className="absolute inset-0 mesh-gradient pointer-events-none" />
+        <div className="relative z-10">
         <Navigation />
 
         <main className="container mx-auto px-4 py-8 max-w-7xl">
           {/* Header */}
-          <div className="flex items-center gap-4 mb-8">
-            <Button variant="ghost" size="sm" asChild>
+          <div className="flex items-center gap-4 mb-8 animate-slide-up">
+            <Button variant="ghost" size="sm" asChild className="hover:bg-muted/50">
               <Link href="/dashboard">
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to Dashboard
@@ -363,54 +365,41 @@ export default function ProgressPage() {
             </div>
           </div>
 
-          {/* Stats Overview - 4 Cards (REAL DATA) */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
-            <Card className="border-border">
+          {/* Stats Overview */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8 animate-slide-up stagger-1">
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Total Study Time</CardTitle>
-                <Clock className="h-4 w-4 text-muted-foreground" />
+                <div className="stat-icon-purple"><Clock className="h-4 w-4" /></div>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{loading ? '...' : `${stats.totalHours}h`}</div>
+                <div className="text-3xl font-bold font-montserrat">{loading ? '...' : `${stats.totalHours}h`}</div>
                 <p className="text-xs text-muted-foreground">
                   {getTotalHoursThisWeek().toFixed(1)}h this week
                 </p>
               </CardContent>
             </Card>
 
-            <Card className="border-border">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Videos Completed</CardTitle>
-                <CheckCircle className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold">{loading ? '...' : stats.videosWatched}</div>
-                <p className="text-xs text-muted-foreground">
-                  {getVideosThisWeek()} watched this week
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-border">
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Experience Points</CardTitle>
-                <Zap className="h-4 w-4 text-muted-foreground" />
+                <div className="stat-icon-amber"><Zap className="h-4 w-4" /></div>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{loading ? '...' : stats.experiencePoints.toLocaleString()}</div>
+                <div className="text-3xl font-bold font-montserrat">{loading ? '...' : stats.experiencePoints.toLocaleString()}</div>
                 <p className="text-xs text-muted-foreground">
                   Level {getLevel(stats.experiencePoints)}
                 </p>
               </CardContent>
             </Card>
 
-            <Card className="border-border">
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Learning Streak</CardTitle>
-                <Trophy className="h-4 w-4 text-muted-foreground" />
+                <div className="stat-icon-rose"><Trophy className="h-4 w-4" /></div>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold">{loading ? '...' : `${stats.currentStreak} days`}</div>
+                <div className="text-3xl font-bold font-montserrat">{loading ? '...' : `${stats.currentStreak} days`}</div>
                 <p className="text-xs text-muted-foreground">Keep it up! 🔥</p>
               </CardContent>
             </Card>
@@ -418,17 +407,17 @@ export default function ProgressPage() {
 
           {/* Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList className="grid w-full grid-cols-4 bg-muted/50">
+            <TabsList className="grid w-full grid-cols-4 bg-muted/30 backdrop-blur-sm border border-border/50">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="performance">Performance</TabsTrigger>
               <TabsTrigger value="patterns">Learning Patterns</TabsTrigger>
               <TabsTrigger value="insights">AI Insights</TabsTrigger>
             </TabsList>
 
-            {/* Overview Tab (REAL DATA) */}
+            {/* Overview Tab */}
             <TabsContent value="overview" className="space-y-6">
               <div className="grid gap-6 md:grid-cols-2">
-                <Card>
+                <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                   <CardHeader>
                     <CardTitle>Weekly Learning Activity</CardTitle>
                     <CardDescription>Your actual study hours for the past 7 days</CardDescription>
@@ -438,7 +427,7 @@ export default function ProgressPage() {
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                   <CardHeader>
                     <CardTitle>Subject Progress</CardTitle>
                     <CardDescription>Completion rate by subject (videos completed / total watched)</CardDescription>
@@ -470,10 +459,10 @@ export default function ProgressPage() {
               </div>
             </TabsContent>
 
-            {/* Performance Tab (REAL DATA) */}
+            {/* Performance Tab */}
             <TabsContent value="performance" className="space-y-6">
               <div className="grid gap-6 md:grid-cols-2">
-                <Card>
+                <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                   <CardHeader>
                     <CardTitle>Completion Rate by Subject</CardTitle>
                     <CardDescription>How well you complete videos in each subject area</CardDescription>
@@ -483,7 +472,7 @@ export default function ProgressPage() {
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                   <CardHeader>
                     <CardTitle>Study Time Distribution</CardTitle>
                     <CardDescription>How your learning time is distributed across subjects</CardDescription>
@@ -495,16 +484,16 @@ export default function ProgressPage() {
               </div>
             </TabsContent>
 
-            {/* Learning Patterns Tab (REAL DATA) */}
+            {/* Learning Patterns Tab */}
             <TabsContent value="patterns" className="space-y-6">
-              <Card>
+              <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle>Learning Time Distribution</CardTitle>
                   <CardDescription>When you study most during the day (based on your actual watch history)</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <FocusPatternChart />
-                  <div className="mt-6 p-4 bg-muted/50 rounded-lg">
+                  <div className="mt-6 p-4 bg-primary/5 border border-primary/10 rounded-xl">
                     <p className="text-sm">
                       <span className="font-semibold">Peak Learning Time:</span>{' '}
                       <span className="text-primary">{getPeakLearningTime()}</span>
@@ -516,7 +505,7 @@ export default function ProgressPage() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle>Recent Learning Activity</CardTitle>
                   <CardDescription>Your last {Math.min(recentlyWatched.length, 10)} watched videos</CardDescription>
@@ -525,11 +514,11 @@ export default function ProgressPage() {
                   {recentlyWatched.length > 0 ? (
                     <div className="space-y-3">
                       {recentlyWatched.slice(0, 10).map((video, i) => (
-                        <div key={video.videoId} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50">
+                        <div key={video.videoId} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors">
                           <img 
                             src={video.thumbnail} 
                             alt={video.title} 
-                            className="w-24 h-14 object-cover rounded"
+                            className="w-24 h-14 object-cover rounded-lg"
                           />
                           <div className="flex-1 min-w-0">
                             <p className="font-medium truncate">{video.title}</p>
@@ -556,19 +545,19 @@ export default function ProgressPage() {
               </Card>
             </TabsContent>
 
-            {/* AI Insights Tab (PLACEHOLDER - kept as requested) */}
+            {/* AI Insights Tab */}
             <TabsContent value="insights" className="space-y-6">
               <div className="grid gap-6 md:grid-cols-2">
-                <Card>
+                <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <Brain className="w-5 h-5" />
+                      <div className="stat-icon-purple"><Brain className="w-4 h-4" /></div>
                       AI Recommendations
                     </CardTitle>
                     <CardDescription>Personalized suggestions based on your learning patterns</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+                    <div className="p-4 bg-green-500/5 border border-green-500/20 rounded-xl">
                       <h4 className="font-semibold text-green-600 dark:text-green-400">Study Schedule</h4>
                       <p className="text-sm text-muted-foreground mt-1">
                         {getPeakLearningTime() !== 'Not enough data' 
@@ -577,7 +566,7 @@ export default function ProgressPage() {
                       </p>
                     </div>
                     
-                    <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                    <div className="p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl">
                       <h4 className="font-semibold text-blue-600 dark:text-blue-400">Strength Area</h4>
                       <p className="text-sm text-muted-foreground mt-1">
                         {subjectPerformance.length > 0 
@@ -586,7 +575,7 @@ export default function ProgressPage() {
                       </p>
                     </div>
                     
-                    <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                    <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl">
                       <h4 className="font-semibold text-amber-600 dark:text-amber-400">Improvement Area</h4>
                       <p className="text-sm text-muted-foreground mt-1">
                         {subjectPerformance.length > 1 
@@ -597,13 +586,13 @@ export default function ProgressPage() {
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                   <CardHeader>
                     <CardTitle>Learning Goals</CardTitle>
                     <CardDescription>Track your progress towards learning milestones</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="p-4 border rounded-lg">
+                    <div className="p-4 border border-border/50 rounded-xl">
                       <div className="flex justify-between items-center mb-2">
                         <span className="font-medium">Complete 10 videos</span>
                         <span className="text-sm text-muted-foreground">{Math.min(stats.videosWatched, 10)}/10</span>
@@ -611,7 +600,7 @@ export default function ProgressPage() {
                       <Progress value={Math.min(stats.videosWatched / 10, 1) * 100} className="h-2" />
                     </div>
                     
-                    <div className="p-4 border rounded-lg">
+                    <div className="p-4 border border-border/50 rounded-xl">
                       <div className="flex justify-between items-center mb-2">
                         <span className="font-medium">Study 10 hours total</span>
                         <span className="text-sm text-muted-foreground">{Math.min(stats.totalHours, 10)}/10h</span>
@@ -619,7 +608,7 @@ export default function ProgressPage() {
                       <Progress value={Math.min(stats.totalHours / 10, 1) * 100} className="h-2" />
                     </div>
                     
-                    <div className="p-4 border rounded-lg">
+                    <div className="p-4 border border-border/50 rounded-xl">
                       <div className="flex justify-between items-center mb-2">
                         <span className="font-medium">7-day learning streak</span>
                         <span className="text-sm text-muted-foreground">{Math.min(stats.currentStreak, 7)}/7 days</span>
@@ -627,7 +616,7 @@ export default function ProgressPage() {
                       <Progress value={Math.min(stats.currentStreak / 7, 1) * 100} className="h-2" />
                     </div>
                     
-                    <div className="p-4 border rounded-lg">
+                    <div className="p-4 border border-border/50 rounded-xl">
                       <div className="flex justify-between items-center mb-2">
                         <span className="font-medium">Reach Level 5</span>
                         <span className="text-sm text-muted-foreground">Level {getLevel(stats.experiencePoints)}/5</span>
@@ -640,6 +629,7 @@ export default function ProgressPage() {
             </TabsContent>
           </Tabs>
         </main>
+        </div>
       </div>
     </AuthGuard>
   )

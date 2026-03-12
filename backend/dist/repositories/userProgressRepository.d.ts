@@ -41,6 +41,21 @@ export declare class UserProgressRepository {
     updateProgress(userId: number, videoId: string, progressTime: number, totalDuration: number, completed?: boolean, videoTitle?: string, videoThumbnail?: string, videoChannel?: string): Promise<UserProgress>;
     recordWatchHistory(userId: number, videoId: string, duration: number, action: 'play' | 'pause' | 'seek' | 'complete'): Promise<void>;
     /**
+     * Get weekly learning stats (hours per day for past 7 days)
+     */
+    getWeeklyStats(userId: number): Promise<{
+        day: string;
+        hours: number;
+        date: string;
+    }[]>;
+    /**
+     * Get learning patterns (hours watched by time of day)
+     */
+    getLearningPatterns(userId: number): Promise<{
+        hour: string;
+        avgMinutes: number;
+    }[]>;
+    /**
      * Mark video as completed manually
      */
     markCompleted(userId: number, videoId: string): Promise<void>;

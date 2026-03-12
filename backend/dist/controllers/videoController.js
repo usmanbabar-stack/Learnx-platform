@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.videoController = exports.VideoController = void 0;
 const videoRepository_1 = require("../repositories/videoRepository");
@@ -8,6 +41,53 @@ const qdrantService_1 = require("../services/qdrantService");
 const transcriptRetrievalService_1 = require("../services/transcriptRetrievalService");
 const logger_1 = require("../utils/logger");
 const express_validator_1 = require("express-validator");
+// ============================================
+// STRICT EDUCATIONAL FILTER
+// ============================================
+// Educational keywords that MUST be present in title (at least one)
+const EDUCATIONAL_KEYWORDS = [
+    'tutorial', 'explained', 'lecture', 'course', 'lesson', 'learn',
+    'introduction', 'guide', 'how to', 'what is', 'understanding',
+    'beginner', 'advanced', 'complete', 'full course', 'crash course',
+    'algorithm', 'programming', 'coding', 'development', 'engineering',
+    'data structure', 'computer science', 'in hindi', 'in urdu', 'in english',
+    'step by step', 'example', 'practice', 'solution', 'interview',
+    'gate', 'exam', 'mcq', 'question', 'basics', 'fundamentals',
+    'network', 'security', 'database', 'web', 'machine learning',
+    'part 1', 'part 2', 'part-1', 'part-2', 'chapter', 'module',
+    'encryption', 'decryption', 'cryptography', 'protocol',
+];
+// Non-educational patterns - strictly block these
+const BLOCKED_PATTERNS = [
+    /\b(official\s*(music\s*)?video|lyric\s*video|audio\s*song)\b/i,
+    /\b(full\s*movie|official\s*trailer|teaser|promo)\b/i,
+    /\bvevo\b/i,
+    /\b(feat\.|ft\.|starring)\b/i,
+    /\b(remix|cover|live\s*performance|concert|unplugged)\b/i,
+    /\b(episode\s*\d+|s\d+\s*e\d+|ep\s*\d+)\b/i, // TV shows
+    /\b(movie|film|drama|series|season)\b/i,
+    /\b(song|album|music|singer|artist|band)\b/i,
+    /\b(trailer|teaser|behind\s*the\s*scenes)\b/i,
+];
+/**
+ * STRICT filter - only allows educational content
+ */
+function filterEducationalResults(results) {
+    return results.filter(result => {
+        const title = result.title.toLowerCase();
+        const channel = result.channel.toLowerCase();
+        // Check for blocked patterns
+        for (const pattern of BLOCKED_PATTERNS) {
+            if (pattern.test(title) || pattern.test(channel)) {
+                return false;
+            }
+        }
+        // MUST have at least one educational keyword
+        const hasEducationalKeyword = EDUCATIONAL_KEYWORDS.some(kw => title.includes(kw));
+        return hasEducationalKeyword;
+    });
+}
+// ============================================
 class VideoController {
     /**
      * Search for videos based on query
@@ -53,29 +133,34 @@ class VideoController {
             }
             // Otherwise, scrape new videos and store them
             const scrapedVideos = await youtubeScraperService_1.youtubeScraperService.searchEducationalVideos(query);
+            // Apply fast educational filter (removes music, movies, etc.)
+            const filteredVideos = filterEducationalResults(scrapedVideos);
+            logger_1.logger.info(`Filtered ${scrapedVideos.length} -> ${filteredVideos.length} educational videos`);
             const newVideos = [];
             // Process scraped videos
-            for (const scrapedVideo of scrapedVideos.slice(0, Number(limit) - dbResults.length)) {
+            const videosToProcess = filteredVideos.slice(0, Number(limit) - dbResults.length);
+            const savedVideos = [];
+            // Step 1: Save all videos to database first (fast operation)
+            for (const scrapedVideo of videosToProcess) {
                 try {
                     // Check if video already exists
                     const existingVideo = await videoRepository_1.videoRepository.findByVideoId(scrapedVideo.videoId);
-                    if (existingVideo)
+                    if (existingVideo) {
+                        savedVideos.push(existingVideo);
                         continue;
-                    // Get detailed metadata and transcript
-                    const [metadata, transcript] = await Promise.all([
-                        youtubeScraperService_1.youtubeScraperService.getVideoMetadata(scrapedVideo.videoId),
-                        youtubeScraperService_1.youtubeScraperService.getVideoTranscript(scrapedVideo.videoId).catch(() => [])
-                    ]);
+                    }
+                    // Get detailed metadata (skip transcript fetch here - we'll preload it)
+                    const metadata = await youtubeScraperService_1.youtubeScraperService.getVideoMetadata(scrapedVideo.videoId);
                     // Determine subject and quality based on content
                     const subject = this.determineSubject(metadata.title, metadata.description);
-                    const qualityScore = this.calculateQualityScore(metadata, transcript);
+                    const qualityScore = this.calculateQualityScore(metadata, []);
                     const videoDoc = {
                         videoId: scrapedVideo.videoId,
                         metadata: {
                             ...metadata,
                             scrapedAt: new Date()
                         },
-                        transcript,
+                        transcript: [], // Will be filled by background preload
                         searchKeywords: [],
                         subject,
                         difficulty: this.determineDifficulty(metadata.title, metadata.description),
@@ -86,17 +171,21 @@ class VideoController {
                         updatedAt: new Date()
                     };
                     const saved = await videoRepository_1.videoRepository.create(videoDoc);
-                    // Index chunks in Qdrant for fast RAG retrieval
-                    if (transcript.length > 0) {
-                        const chunks = (0, transcriptRetrievalService_1.chunkTranscript)(transcript);
-                        qdrantService_1.qdrantService.upsertChunks(scrapedVideo.videoId, chunks).catch(err => logger_1.logger.warn(`Failed to index chunks in Qdrant for ${scrapedVideo.videoId}:`, err));
-                    }
+                    savedVideos.push(saved);
                     newVideos.push(saved);
                 }
                 catch (error) {
                     logger_1.logger.error(`Error processing video ${scrapedVideo.videoId}:`, error);
                 }
             }
+            // Step 2: ⚡ AGGRESSIVE PARALLEL PRELOAD - Start transcript extraction for ALL videos immediately
+            logger_1.logger.info(`🚀 Starting parallel transcript preload for ${savedVideos.length} videos`);
+            const preloadPromises = savedVideos.map(video => transcriptOrchestrationService_1.transcriptOrchestrationService.preloadTranscript(video.videoId)
+                .catch(err => logger_1.logger.warn(`Preload failed for ${video.videoId}:`, err)));
+            // Don't wait for preloads - let them run in background
+            Promise.all(preloadPromises).then(() => {
+                logger_1.logger.info(`✅ Completed parallel preload for ${savedVideos.length} videos`);
+            });
             // Combine database and new results
             const allResults = [...dbResults, ...newVideos];
             res.json({
@@ -293,8 +382,15 @@ class VideoController {
                         updatedAt: new Date()
                     };
                     const saved = await videoRepository_1.videoRepository.create(videoDoc);
-                    // Index chunks in Qdrant
-                    if (transcript.length > 0) {
+                    // ⚡ OPTIMIZATION 2: Auto-preload transcript in background for instant readiness
+                    if (transcript.length === 0) {
+                        // No transcript yet - trigger background preload for fast future access
+                        Promise.resolve().then(() => __importStar(require('../services/transcriptOrchestrationService'))).then(({ transcriptOrchestrationService }) => {
+                            transcriptOrchestrationService.preloadTranscript(metadata.videoId).catch(err => logger_1.logger.warn(`Background preload failed for ${metadata.videoId}:`, err));
+                        });
+                    }
+                    else {
+                        // Has transcript - index chunks in Qdrant
                         const chunks = (0, transcriptRetrievalService_1.chunkTranscript)(transcript);
                         qdrantService_1.qdrantService.upsertChunks(metadata.videoId, chunks).catch(err => logger_1.logger.warn(`Failed to index chunks for ${metadata.videoId}:`, err));
                     }

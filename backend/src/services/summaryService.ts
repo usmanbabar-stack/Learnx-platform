@@ -17,9 +17,10 @@ function getClient(): GoogleGenerativeAI {
 }
 
 // SINGLE MODEL ONLY - to ensure max 1 API call per summary request
-// gemini-2.5-flash has quota available
 const MODELS_TO_TRY = [
-  'gemini-2.5-flash',           // Only model - 1 API call max
+  'gemini-3-flash-preview',
+  'gemini-2.5-flash',
+  'gemini-3.1-flash-lite-preview',
 ];
 
 // Limit transcript size to reduce token usage (approx 4 chars = 1 token)
@@ -282,7 +283,7 @@ Output strict JSON (in English only):
     try {
       const genAI = getClient();
       const model = genAI.getGenerativeModel({ 
-        model: 'gemini-1.5-flash-8b'
+        model: 'gemini-3-flash-preview'
       });
 
       const prompt = `Provide a concise 2-3 sentence summary of this video based on the transcript:\n\n${sampleText.slice(0, 10000)}`;

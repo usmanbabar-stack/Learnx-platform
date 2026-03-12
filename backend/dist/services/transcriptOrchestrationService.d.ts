@@ -5,7 +5,7 @@ export interface TranscriptSegment {
 }
 export interface TranscriptQuality {
     segments: TranscriptSegment[];
-    source: 'db' | 'youtube-transcript' | 'watch-page' | 'yt-dlp' | 'whisper' | 'qdrant-only';
+    source: 'db' | 'watch-page' | 'yt-dlp' | 'whisper' | 'qdrant-only';
     confidence: 'high' | 'medium' | 'low';
     processingTime: number;
     wordCount: number;

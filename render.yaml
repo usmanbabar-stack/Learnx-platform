@@ -1,0 +1,78 @@
+services:
+  - type: web
+    name: learnx-backend-api
+    env: docker
+    plan: free
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3001"
+      - key: DATABASE_URL
+        sync: false
+      - key: POSTGRES_SSL
+        value: "true"
+      - key: REDIS_URL
+        sync: false
+      - key: ENABLE_REDIS
+        value: "true"
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: FRONTEND_URLS
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: LOG_LEVEL
+        value: info
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: ASR_ENABLED
+        value: "true"
+      - key: ENABLE_ASR_FALLBACK
+        value: "true"
+      - key: FULL_AUDIO_TRANSCRIBE
+        value: "true"
+      - key: ASR_PROVIDER
+        value: local
+      - key: ASR_SERVER_URL
+        sync: false
+      - key: ASR_LANGUAGE
+        value: auto
+      - key: USE_QDRANT
+        value: "true"
+      - key: USE_EMBEDDINGS
+        value: "true"
+      - key: EMBEDDING_MODEL
+        value: gemini-embedding-001
+      - key: YTDLP_ENABLED
+        value: "true"
+      - key: YTDLP_SUB_LANGS
+        value: all
+
+  - type: web
+    name: learnx-asr
+    env: docker
+    plan: free
+    dockerContext: ./asr-server
+    dockerfilePath: ./asr-server/Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ASR_PORT
+        value: "8000"
+      - key: FFMPEG_PATH
+        value: /usr/bin/ffmpeg
+      - key: PYTHONUNBUFFERED
+        value: "1"

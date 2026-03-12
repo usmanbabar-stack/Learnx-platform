@@ -1,7 +1,7 @@
 # Multi-stage build for production optimization
-FROM node:18-alpine AS base
+FROM node:20-alpine AS base
 
-# Install system dependencies for Puppeteer
+# Install system dependencies for Puppeteer, yt-dlp, and ffmpeg
 RUN apk add --no-cache \
     chromium \
     nss \
@@ -10,7 +10,13 @@ RUN apk add --no-cache \
     harfbuzz \
     ca-certificates \
     ttf-freefont \
+    python3 \
+    py3-pip \
+    ffmpeg \
     && rm -rf /var/cache/apk/*
+
+# Install yt-dlp for video transcript extraction
+RUN pip3 install --no-cache-dir yt-dlp --break-system-packages
 
 # Tell Puppeteer to skip installing Chromium. We'll be using the installed package.
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
@@ -27,8 +33,12 @@ COPY tsconfig.json ./
 FROM base AS development
 RUN npm ci --include=dev
 COPY . .
+# Copy and set entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 EXPOSE 3001
-CMD ["npm", "run", "dev"]
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["node", "node_modules/nodemon/bin/nodemon.js", "src/server.ts"]
 
 # Build stage
 FROM base AS build

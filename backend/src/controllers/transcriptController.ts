@@ -1,11 +1,12 @@
 import { Request, Response } from 'express';
-import { videoRepository, getSummaryByVideoId, saveSummary, getGlossaryByVideoId, saveGlossary } from '../repositories/videoRepository';
+import { videoRepository, getSummaryByVideoId, saveSummary, getGlossaryByVideoId, saveGlossary, getQuizByVideoId, saveQuiz } from '../repositories/videoRepository';
 import { logger } from '../utils/logger';
 import { validationResult } from 'express-validator';
 import { getRedisClient } from '../config/redis';
 import { summaryService } from '../services/summaryService';
 import { glossaryService } from '../services/glossaryService';
 import { flashcardService } from '../services/flashcardService';
+import { quizService } from '../services/quizService';
 
 interface TranscriptSegment {
   text: string;
@@ -537,6 +538,141 @@ export class TranscriptController {
       res.status(500).json({
         success: false,
         message: 'Failed to generate flashcards. Please try again.'
+      });
+    }
+  }
+
+  /**
+   * Generate quiz from transcript with PostgreSQL caching
+   * CACHING STRATEGY:
+   * 1. Check PostgreSQL (permanent cache - shared across all users)
+   * 2. If not found, generate with LLM and save to PostgreSQL
+   */
+  async generateQuiz(req: Request, res: Response): Promise<void> {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        res.status(400).json({
+          success: false,
+          message: 'Validation errors',
+          errors: errors.array()
+        });
+        return;
+      }
+
+      const { videoId } = req.params;
+      const questionCount = parseInt(req.query.count as string) || 10;
+
+      // Limit question count to reasonable range
+      const limitedCount = Math.min(Math.max(questionCount, 5), 20);
+
+      // 1. CHECK POSTGRESQL FIRST (permanent cache - shared for all users)
+      try {
+        const savedQuiz = await getQuizByVideoId(videoId);
+        // Only use cached quiz if it has actual content (not a failed generation)
+        const hasValidContent = savedQuiz && 
+          savedQuiz.questions && savedQuiz.questions.length > 0 &&
+          savedQuiz.totalQuestions > 0;
+        
+        if (hasValidContent) {
+          logger.info(`Returning cached quiz from PostgreSQL for ${videoId}`);
+          
+          // Get video metadata for response
+          const video = await videoRepository.findByVideoId(videoId);
+          
+          res.json({
+            success: true,
+            data: {
+              ...savedQuiz,
+              title: (video as any)?.metadata?.title || videoId,
+              channel: (video as any)?.metadata?.channel,
+              cached: true,
+              cacheSource: 'database'
+            }
+          });
+          return;
+        } else if (savedQuiz) {
+          logger.info(`Found cached quiz with empty content for ${videoId}, will regenerate`);
+        }
+      } catch (dbError) {
+        logger.warn('PostgreSQL quiz lookup error:', dbError);
+        // Continue to generate if DB lookup fails
+      }
+
+      // 2. Get video from PostgreSQL
+      const video = await videoRepository.findByVideoId(videoId);
+      if (!video) {
+        res.status(404).json({
+          success: false,
+          message: 'Video not found'
+        });
+        return;
+      }
+
+      // 3. Get transcript from PostgreSQL (as requested by user)
+      const transcript = await videoRepository.getTranscriptByVideoId(videoId);
+      if (!transcript || transcript.length === 0) {
+        res.status(404).json({
+          success: false,
+          message: 'Transcript not ready. Please wait for transcript processing to complete.',
+          status: 'transcript_pending'
+        });
+        return;
+      }
+
+      // 4. Generate quiz with LLM (optimized - only if not in database)
+      logger.info(`Generating quiz for video: ${videoId} (${limitedCount} questions from ${transcript.length} segments)`);
+      const startTime = Date.now();
+
+      const quiz = await quizService.generateQuiz(
+        transcript,
+        videoId,
+        (video as any).metadata?.title || 'Educational Video',
+        limitedCount
+      );
+
+      const generationTimeMs = Date.now() - startTime;
+
+      // 5. SAVE TO POSTGRESQL (only if quiz has actual content - don't cache failures!)
+      const hasValidQuiz = quiz.questions && quiz.questions.length > 0 &&
+        quiz.totalQuestions > 0;
+      
+      if (hasValidQuiz) {
+        try {
+          await saveQuiz({
+            videoId,
+            questions: quiz.questions,
+            totalQuestions: quiz.totalQuestions,
+            categories: quiz.categories,
+            generationTimeMs
+          });
+          logger.info(`Saved quiz to PostgreSQL for ${videoId}: ${quiz.totalQuestions} questions`);
+        } catch (saveError) {
+          logger.warn('Failed to save quiz to PostgreSQL:', saveError);
+          // Continue anyway - we can return the generated quiz
+        }
+      } else {
+        logger.warn(`Quiz generation returned empty content for ${videoId} - NOT caching failure`);
+      }
+
+      const quizData = {
+        ...quiz,
+        generationTimeMs,
+        cached: false
+      };
+
+      logger.info(`Quiz generated in ${generationTimeMs}ms: ${quiz.totalQuestions} questions`);
+
+      res.json({
+        success: true,
+        data: quizData
+      });
+
+    } catch (error) {
+      logger.error('Error in generateQuiz:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to generate quiz. Please try again.'
       });
     }
   }

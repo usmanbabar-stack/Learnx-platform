@@ -171,7 +171,7 @@ export async function retrieveRelevantChunks(
   // Optional embeddings rerank (if not using Qdrant)
   if (useEmb && !useQdrant) {
     try {
-      const model = process.env.EMBEDDING_MODEL || "text-embedding-004";
+      const model = process.env.EMBEDDING_MODEL || "gemini-embedding-001";
       const qEmb = await getEmbeddings([query], model);
       const cEmb = await getEmbeddings(chunks.map(c => c.text), model);
       if (qEmb.length === 1 && cEmb.length === chunks.length) {

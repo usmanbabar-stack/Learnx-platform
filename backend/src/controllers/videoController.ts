@@ -124,21 +124,25 @@ export class VideoController {
       const newVideos: VideoDocument[] = [];
 
       // Process scraped videos
-      for (const scrapedVideo of filteredVideos.slice(0, Number(limit) - dbResults.length)) {
+      const videosToProcess = filteredVideos.slice(0, Number(limit) - dbResults.length);
+      const savedVideos: VideoDocument[] = [];
+      
+      // Step 1: Save all videos to database first (fast operation)
+      for (const scrapedVideo of videosToProcess) {
         try {
           // Check if video already exists
           const existingVideo = await videoRepository.findByVideoId(scrapedVideo.videoId);
-          if (existingVideo) continue;
+          if (existingVideo) {
+            savedVideos.push(existingVideo);
+            continue;
+          }
 
-          // Get detailed metadata and transcript
-          const [metadata, transcript] = await Promise.all([
-            youtubeScraperService.getVideoMetadata(scrapedVideo.videoId),
-            youtubeScraperService.getVideoTranscript(scrapedVideo.videoId).catch(() => [])
-          ]);
+          // Get detailed metadata (skip transcript fetch here - we'll preload it)
+          const metadata = await youtubeScraperService.getVideoMetadata(scrapedVideo.videoId);
 
           // Determine subject and quality based on content
           const subject = this.determineSubject(metadata.title, metadata.description);
-          const qualityScore = this.calculateQualityScore(metadata, transcript);
+          const qualityScore = this.calculateQualityScore(metadata, []);
 
           const videoDoc: VideoDocument = {
             videoId: scrapedVideo.videoId,
@@ -146,7 +150,7 @@ export class VideoController {
               ...metadata,
               scrapedAt: new Date()
             },
-            transcript,
+            transcript: [], // Will be filled by background preload
             searchKeywords: [],
             subject,
             difficulty: this.determineDifficulty(metadata.title, metadata.description),
@@ -158,21 +162,25 @@ export class VideoController {
           };
 
           const saved = await videoRepository.create(videoDoc);
-          
-          // Index chunks in Qdrant for fast RAG retrieval
-          if (transcript.length > 0) {
-            const chunks = chunkTranscript(transcript);
-            qdrantService.upsertChunks(scrapedVideo.videoId, chunks).catch(err =>
-              logger.warn(`Failed to index chunks in Qdrant for ${scrapedVideo.videoId}:`, err)
-            );
-          }
-          
+          savedVideos.push(saved);
           newVideos.push(saved);
           
         } catch (error) {
           logger.error(`Error processing video ${scrapedVideo.videoId}:`, error);
         }
       }
+
+      // Step 2: ⚡ AGGRESSIVE PARALLEL PRELOAD - Start transcript extraction for ALL videos immediately
+      logger.info(`🚀 Starting parallel transcript preload for ${savedVideos.length} videos`);
+      const preloadPromises = savedVideos.map(video => 
+        transcriptOrchestrationService.preloadTranscript(video.videoId)
+          .catch(err => logger.warn(`Preload failed for ${video.videoId}:`, err))
+      );
+      
+      // Don't wait for preloads - let them run in background
+      Promise.all(preloadPromises).then(() => {
+        logger.info(`✅ Completed parallel preload for ${savedVideos.length} videos`);
+      });
 
       // Combine database and new results
       const allResults = [...dbResults, ...newVideos];
@@ -399,8 +407,16 @@ export class VideoController {
 
           const saved = await videoRepository.create(videoDoc);
           
-          // Index chunks in Qdrant
-          if (transcript.length > 0) {
+          // ⚡ OPTIMIZATION 2: Auto-preload transcript in background for instant readiness
+          if (transcript.length === 0) {
+            // No transcript yet - trigger background preload for fast future access
+            import('../services/transcriptOrchestrationService').then(({ transcriptOrchestrationService }) => {
+              transcriptOrchestrationService.preloadTranscript(metadata.videoId).catch(err =>
+                logger.warn(`Background preload failed for ${metadata.videoId}:`, err)
+              );
+            });
+          } else {
+            // Has transcript - index chunks in Qdrant
             const chunks = chunkTranscript(transcript);
             qdrantService.upsertChunks(metadata.videoId, chunks).catch(err =>
               logger.warn(`Failed to index chunks for ${metadata.videoId}:`, err)

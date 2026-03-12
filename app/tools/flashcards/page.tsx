@@ -128,27 +128,29 @@ export default function FlashcardsPage() {
   if (!videoId) {
     return (
       <AuthGuard>
-        <div className="min-h-screen bg-[#0a0a0f]">
+        <div className="min-h-screen bg-background relative">
+          <div className="absolute inset-0 mesh-gradient pointer-events-none" />
+          <div className="relative z-10">
           <Navigation />
           <main className="container mx-auto px-4 py-8">
             <div className="max-w-2xl mx-auto text-center">
-              <Card className="bg-[#12121a] border-gray-800">
+              <Card className="border-border/50 bg-card/80 backdrop-blur-sm animate-scale-in">
                 <CardHeader>
-                  <div className="mx-auto w-16 h-16 bg-purple-500/20 rounded-full flex items-center justify-center mb-4">
-                    <BookOpen className="w-8 h-8 text-purple-400" />
+                  <div className="mx-auto w-16 h-16 stat-icon-purple rounded-2xl flex items-center justify-center mb-4">
+                    <BookOpen className="w-8 h-8 text-primary" />
                   </div>
-                  <CardTitle className="text-2xl text-white">AI Flashcards</CardTitle>
-                  <CardDescription className="text-gray-400">
+                  <CardTitle className="text-2xl font-montserrat">AI Flashcards</CardTitle>
+                  <CardDescription className="font-open-sans">
                     Generate intelligent flashcards from any educational video
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <p className="text-gray-300">
+                  <p className="text-muted-foreground font-open-sans">
                     To generate flashcards, please select a video from the Learn page first.
                   </p>
                   <Button 
                     onClick={() => router.push("/learn")}
-                    className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                    className="font-semibold bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 shadow-md shadow-primary/20"
                   >
                     <Search className="w-4 h-4 mr-2" />
                     Browse Videos
@@ -157,6 +159,7 @@ export default function FlashcardsPage() {
               </Card>
             </div>
           </main>
+          </div>
         </div>
       </AuthGuard>
     );
@@ -164,25 +167,27 @@ export default function FlashcardsPage() {
 
   return (
     <AuthGuard>
-      <div className="min-h-screen bg-[#0a0a0f]">
+      <div className="min-h-screen bg-background relative">
+        <div className="absolute inset-0 mesh-gradient pointer-events-none" />
+        <div className="relative z-10">
         <Navigation />
         <main className="container mx-auto px-4 py-8">
           {/* Header */}
-          <div className="flex items-center gap-4 mb-6">
+          <div className="flex items-center gap-4 mb-6 animate-slide-up">
             <Button
               variant="ghost"
               size="icon"
               onClick={() => router.back()}
-              className="text-gray-400 hover:text-white"
+              className="hover:bg-muted/50"
             >
               <ArrowLeft className="w-5 h-5" />
             </Button>
             <div className="flex-1">
-              <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-                <Sparkles className="w-6 h-6 text-purple-400" />
-                AI Flashcards
+              <h1 className="text-2xl font-black font-montserrat flex items-center gap-2">
+                <Sparkles className="w-6 h-6 text-primary" />
+                <span className="gradient-text">AI Flashcards</span>
               </h1>
-              <p className="text-gray-400 text-sm mt-1 line-clamp-1">
+              <p className="text-muted-foreground text-sm mt-1 line-clamp-1 font-open-sans">
                 {decodeURIComponent(videoTitle)}
               </p>
             </div>
@@ -191,20 +196,20 @@ export default function FlashcardsPage() {
           {/* Loading State */}
           {loading && (
             <div className="flex flex-col items-center justify-center py-20">
-              <Loader2 className="w-12 h-12 text-purple-500 animate-spin mb-4" />
-              <p className="text-gray-400">Generating flashcards with AI...</p>
-              <p className="text-gray-500 text-sm mt-2">This may take a moment</p>
+              <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
+              <p className="text-muted-foreground font-open-sans">Generating flashcards with AI...</p>
+              <p className="text-muted-foreground/70 text-sm mt-2 font-open-sans">This may take a moment</p>
             </div>
           )}
 
           {/* Error State */}
           {error && !loading && (
-            <Card className="bg-red-500/10 border-red-500/30 max-w-lg mx-auto">
+            <Card className="bg-destructive/10 border-destructive/30 max-w-lg mx-auto backdrop-blur-sm">
               <CardContent className="py-8 text-center">
-                <p className="text-red-400 mb-4">{error}</p>
+                <p className="text-destructive mb-4 font-open-sans">{error}</p>
                 <Button 
                   onClick={fetchFlashcards}
-                  className="bg-red-600 hover:bg-red-700"
+                  variant="destructive"
                 >
                   Try Again
                 </Button>
@@ -218,10 +223,10 @@ export default function FlashcardsPage() {
               {/* Controls */}
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-purple-400 border-purple-500/30">
+                  <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5">
                     {filteredFlashcards.length} cards
                   </Badge>
-                  <Badge variant="outline" className="text-green-400 border-green-500/30">
+                  <Badge variant="outline" className="text-emerald-600 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/5">
                     {studiedCards.size} studied
                   </Badge>
                 </div>
@@ -235,13 +240,13 @@ export default function FlashcardsPage() {
                       setCurrentCardIndex(0);
                       setIsFlipped(false);
                     }}
-                    className="w-48 bg-[#1a1a2e] border-gray-700 text-white"
+                    className="w-48 bg-muted/50 border-border/50"
                   />
                   <Button
                     variant="outline"
                     size="icon"
                     onClick={shuffleCards}
-                    className="border-gray-700 text-gray-400 hover:text-white"
+                    className="border-border/50 hover:bg-muted/50"
                     title="Shuffle cards"
                   >
                     <Shuffle className="w-4 h-4" />
@@ -250,7 +255,7 @@ export default function FlashcardsPage() {
                     variant="outline"
                     size="icon"
                     onClick={resetProgress}
-                    className="border-gray-700 text-gray-400 hover:text-white"
+                    className="border-border/50 hover:bg-muted/50"
                     title="Reset progress"
                   >
                     <RotateCcw className="w-4 h-4" />
@@ -273,16 +278,16 @@ export default function FlashcardsPage() {
                   >
                     {/* Front of card */}
                     <div
-                      className="absolute inset-0 bg-gradient-to-br from-[#1a1a2e] to-[#16213e] rounded-2xl border border-purple-500/30 p-8 flex flex-col items-center justify-center backface-hidden shadow-xl"
+                      className="absolute inset-0 bg-gradient-to-br from-card to-muted rounded-2xl border border-primary/30 p-8 flex flex-col items-center justify-center backface-hidden shadow-xl backdrop-blur-sm"
                       style={{ backfaceVisibility: "hidden" }}
                     >
                       <Badge className={`mb-4 ${getDifficultyColor(currentCard.difficulty)}`}>
                         {currentCard.difficulty}
                       </Badge>
-                      <p className="text-xl font-medium text-white text-center mb-4">
+                      <p className="text-xl font-medium text-foreground text-center mb-4 font-montserrat">
                         {currentCard.question}
                       </p>
-                      <div className="flex items-center gap-2 text-gray-500 text-sm">
+                      <div className="flex items-center gap-2 text-muted-foreground text-sm font-open-sans">
                         <RotateCw className="w-4 h-4" />
                         Click to flip
                       </div>
@@ -290,20 +295,20 @@ export default function FlashcardsPage() {
 
                     {/* Back of card */}
                     <div
-                      className="absolute inset-0 bg-gradient-to-br from-[#16213e] to-[#1a1a2e] rounded-2xl border border-blue-500/30 p-8 flex flex-col items-center justify-center backface-hidden shadow-xl"
+                      className="absolute inset-0 bg-gradient-to-br from-muted to-card rounded-2xl border border-chart-5/30 p-8 flex flex-col items-center justify-center backface-hidden shadow-xl backdrop-blur-sm"
                       style={{
                         backfaceVisibility: "hidden",
                         transform: "rotateY(180deg)",
                       }}
                     >
-                      <p className="text-lg text-gray-200 text-center">
+                      <p className="text-lg text-muted-foreground text-center font-open-sans">
                         {currentCard.answer}
                       </p>
                     </div>
                   </div>
 
                   {/* Card counter */}
-                  <p className="text-center text-gray-400 mt-4">
+                  <p className="text-center text-muted-foreground mt-4 font-open-sans">
                     {currentCardIndex + 1} / {filteredFlashcards.length}
                   </p>
                 </div>
@@ -316,14 +321,14 @@ export default function FlashcardsPage() {
                   size="icon"
                   onClick={prevCard}
                   disabled={currentCardIndex === 0}
-                  className="border-gray-700 text-gray-400 hover:text-white h-12 w-12 disabled:opacity-50"
+                  className="border-border/50 hover:bg-muted/50 h-12 w-12 disabled:opacity-50"
                 >
                   <ChevronLeft className="w-6 h-6" />
                 </Button>
                 
                 <Button
                   onClick={markAsStudied}
-                  className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 px-8"
+                  className="bg-gradient-to-r from-emerald-600 to-green-600 hover:opacity-90 shadow-md shadow-emerald-500/20 px-8 font-semibold"
                 >
                   Mark as Studied
                 </Button>
@@ -333,36 +338,36 @@ export default function FlashcardsPage() {
                   size="icon"
                   onClick={nextCard}
                   disabled={currentCardIndex === filteredFlashcards.length - 1}
-                  className="border-gray-700 text-gray-400 hover:text-white h-12 w-12 disabled:opacity-50"
+                  className="border-border/50 hover:bg-muted/50 h-12 w-12 disabled:opacity-50"
                 >
                   <ChevronRight className="w-6 h-6" />
                 </Button>
               </div>
 
               {/* Progress Bar */}
-              <div className="bg-[#1a1a2e] rounded-full h-2 overflow-hidden">
+              <div className="bg-muted rounded-full h-2 overflow-hidden">
                 <div
-                  className="bg-gradient-to-r from-purple-600 to-blue-600 h-full transition-all duration-300"
+                  className="bg-gradient-to-r from-primary to-chart-5 h-full transition-all duration-300"
                   style={{ width: `${(studiedCards.size / flashcards.length) * 100}%` }}
                 />
               </div>
 
               {/* Card List */}
-              <Card className="bg-[#12121a] border-gray-800">
+              <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardHeader>
-                  <CardTitle className="text-white text-lg">All Flashcards</CardTitle>
+                  <CardTitle className="text-lg font-montserrat">All Flashcards</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3 max-h-96 overflow-y-auto">
                     {filteredFlashcards.map((card, index) => (
                       <div
                         key={card.id}
-                        className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                        className={`p-4 rounded-xl border cursor-pointer transition-all ${
                           index === currentCardIndex
-                            ? "bg-purple-500/20 border-purple-500/50"
+                            ? "bg-primary/10 border-primary/50"
                             : studiedCards.has(card.id)
-                            ? "bg-green-500/10 border-green-500/30"
-                            : "bg-[#1a1a2e] border-gray-700 hover:border-purple-500/50"
+                            ? "bg-emerald-500/10 border-emerald-500/30"
+                            : "bg-muted/30 border-border/50 hover:border-primary/50"
                         }`}
                         onClick={() => {
                           setCurrentCardIndex(index);
@@ -371,8 +376,8 @@ export default function FlashcardsPage() {
                       >
                         <div className="flex items-start justify-between gap-4">
                           <div className="flex-1">
-                            <p className="text-white font-medium mb-1">{card.question}</p>
-                            <p className="text-gray-400 text-sm line-clamp-2">{card.answer}</p>
+                            <p className="font-medium mb-1 font-montserrat">{card.question}</p>
+                            <p className="text-muted-foreground text-sm line-clamp-2 font-open-sans">{card.answer}</p>
                           </div>
                           <Badge className={getDifficultyColor(card.difficulty)}>
                             {card.difficulty}
@@ -389,16 +394,17 @@ export default function FlashcardsPage() {
           {/* Empty State */}
           {!loading && !error && flashcards.length === 0 && (
             <div className="text-center py-20">
-              <p className="text-gray-400">No flashcards available for this video.</p>
+              <p className="text-muted-foreground font-open-sans">No flashcards available for this video.</p>
               <Button 
                 onClick={fetchFlashcards}
-                className="mt-4 bg-purple-600 hover:bg-purple-700"
+                className="mt-4 font-semibold bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 shadow-md shadow-primary/20"
               >
                 Generate Flashcards
               </Button>
             </div>
           )}
         </main>
+        </div>
       </div>
     </AuthGuard>
   );

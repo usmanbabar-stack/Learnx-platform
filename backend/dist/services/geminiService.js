@@ -19,64 +19,87 @@ function getClient() {
     }
     return client;
 }
-async function tryGenerate(modelName, systemPrompt, userPrompt) {
+async function tryGenerate(modelName, systemPrompt, userPrompt, retryCount = 0) {
     const genAI = getClient();
     const model = genAI.getGenerativeModel({ model: modelName });
-    return await model.generateContent({
-        contents: [
-            { role: "user", parts: [{ text: systemPrompt }] },
-            { role: "user", parts: [{ text: userPrompt }] },
-        ],
-        generationConfig: {
-            temperature: 0.5,
-            topP: 0.95,
-            maxOutputTokens: 2048,
-            candidateCount: 1,
-        },
-    });
+    try {
+        const result = await model.generateContent({
+            contents: [
+                { role: "user", parts: [{ text: systemPrompt + "\n\n" + userPrompt }] },
+            ],
+            generationConfig: {
+                temperature: 0.7,
+                topP: 0.9,
+                maxOutputTokens: 4096, // Increased to prevent cutoff
+                candidateCount: 1,
+            },
+        });
+        const text = result.response?.text?.() || "";
+        // If empty and we haven't retried yet, retry once with same model
+        if ((!text || text.trim().length < 50) && retryCount < 2) {
+            logger_1.logger.warn(`Model ${modelName} returned short/empty response, retrying (attempt ${retryCount + 1})`);
+            await new Promise(r => setTimeout(r, 500)); // Small delay before retry
+            return tryGenerate(modelName, systemPrompt, userPrompt, retryCount + 1);
+        }
+        return result;
+    }
+    catch (err) {
+        // Retry on transient errors
+        if (retryCount < 2) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            if (errMsg.includes('503') || errMsg.includes('500') || errMsg.includes('timeout') || errMsg.includes('UNAVAILABLE')) {
+                logger_1.logger.warn(`Model ${modelName} transient error, retrying (attempt ${retryCount + 1}): ${errMsg}`);
+                await new Promise(r => setTimeout(r, 1000));
+                return tryGenerate(modelName, systemPrompt, userPrompt, retryCount + 1);
+            }
+        }
+        throw err;
+    }
 }
 async function askGemini(input) {
-    const systemPrompt = `You are a very friendly AI tutor. Your job is to explain things in **very simple words** and **a lot of detail**, like you are teaching a complete beginner.
+    const systemPrompt = `You are a knowledgeable AI tutor specialized in the subject matter of the video. Your role is to give accurate, technical explanations based on the video content.
 
-CRITICAL STYLE RULES (ALWAYS FOLLOW THESE):
-- Use short, clear sentences
-- Avoid heavy jargon; if you must use a term, explain it in simple words
-- Whenever the question asks \"how\" or \"step by step\", ALWAYS answer in a **numbered step-by-step list**
-- Give concrete mini‑examples to make ideas clear
-- Aim for a detailed answer (at least 8–12 sentences or 8–12 bullet points), not just 2–3 lines
+RESPONSE RULES:
+1. Stay within the technical scope of the video topic (programming, science, etc.)
+2. Give precise, educational answers like a subject matter expert would
+3. Reference specific parts of the video when explaining concepts
+4. Use proper technical terminology appropriate to the subject
+5. Keep answers focused and informative (150-250 words)
 
-CONTENT RULES:
-- Use the video transcript as your main source of truth when it is relevant
-- If the exact thing is not in the transcript, find the closest related ideas and build from them
-- Add your own knowledge to fill gaps and give intuition
+VIDEO CITATIONS:
+When your answer comes from the video, cite it naturally:
+- "As explained in the video at around 0:07..."
+- "The instructor mentions that..."
+- "According to the video..."
+- "At timestamp X:XX, the video shows..."
 
-YOU MUST NEVER:
-- Say \"I could not find an answer\" or \"there is not enough information\"
-- Answer in only 1–2 short lines for conceptual questions
+FORMAT RULES (CRITICAL):
+- Write in plain text paragraphs only
+- NO markdown symbols whatsoever: no **, no ##, no -, no *, no bullets, no numbered lists with dots
+- Use natural sentence flow instead of bullet points
+- Separate ideas with line breaks between paragraphs
+- If listing steps, write them as: "First... Then... Next... Finally..."
 
-Your goal is: **make the student really understand the idea in simple language with step‑by‑step explanation and examples**.`;
-    const userPrompt = `Video Transcript (context from the video):
+CONTENT:
+- Base your answer primarily on the video transcript provided
+- Add relevant technical context from your knowledge when helpful
+- Never refuse to answer
+- Be direct and informative, not overly casual`;
+    const userPrompt = `VIDEO TRANSCRIPT:
 ${input.transcriptContext}
 
-Student's Question:
+QUESTION:
 ${input.question}
 
-Now write your answer:
-- First, one short, simple overview (2–3 sentences)
-- Then, a clear numbered step‑by‑step explanation
-- Then, a tiny concrete example to make it real
-- Use simple language so a beginner can follow.`;
+Give a clear, technical answer based on the video content. Reference specific parts of the video when relevant. Write in plain text only with no special formatting symbols.`;
     // Log the prompt being sent (first 500 chars for debugging)
     logger_1.logger.info(`Gemini prompt preview: ${userPrompt.slice(0, 500)}...`);
     logger_1.logger.info(`Context length: ${input.transcriptContext.length} chars`);
     const primary = GEMINI_MODEL;
     const fallbacks = [
         primary,
-        "gemini-2.5-flash",
-        "gemini-1.5-flash-8b",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro-latest",
-        "gemini-1.5-pro-002",
+        "gemini-2.5-flash", // Use 2.5 instead of 2.0 (2.0 quota exhausted)
+        "gemma-3-12b-it", // Gemma as backup
     ];
     let lastErr = null;
     for (const m of fallbacks) {
@@ -84,14 +107,34 @@ Now write your answer:
             const result = await tryGenerate(m, systemPrompt, userPrompt);
             const text = result.response.text();
             // Log the raw response for debugging
-            logger_1.logger.info(`Gemini response preview: ${text.slice(0, 300)}...`);
-            // Check if response is empty
-            if (!text || text.trim().length === 0) {
-                logger_1.logger.error(`❌ Gemini returned empty response with model ${m}`);
-                throw new Error('Empty response, trying next model');
+            logger_1.logger.info(`Gemini response preview (${m}): ${text.slice(0, 300)}...`);
+            // Check if response is empty or too short
+            if (!text || text.trim().length < 50) {
+                logger_1.logger.error(`❌ Gemini returned empty/short response with model ${m}`);
+                throw new Error('Empty or too short response, trying next model');
             }
             // Use text directly (no JSON parsing since we disabled JSON mode)
-            const answer = text?.trim() || "";
+            let answer = text?.trim() || "";
+            // Check for truncated response (ends abruptly mid-word or mid-sentence)
+            const lastChar = answer.slice(-1);
+            const endsCleanly = ['.', '!', '?', ')', '"', "'", '\n'].includes(lastChar);
+            if (!endsCleanly && answer.length > 100) {
+                // Response might be cut off - try to find last complete sentence
+                const lastPeriod = answer.lastIndexOf('. ');
+                const lastQuestion = answer.lastIndexOf('? ');
+                const lastExclaim = answer.lastIndexOf('! ');
+                const lastComplete = Math.max(lastPeriod, lastQuestion, lastExclaim);
+                if (lastComplete > answer.length * 0.7) {
+                    // Found a reasonable cutoff point, trim there
+                    answer = answer.slice(0, lastComplete + 1);
+                    logger_1.logger.warn(`Trimmed potentially truncated response at position ${lastComplete}`);
+                }
+                else {
+                    // Response seems badly truncated, try next model
+                    logger_1.logger.warn(`❌ Response appears truncated (ends with "${answer.slice(-20)}")`);
+                    throw new Error('Truncated response, trying next model');
+                }
+            }
             if (answer.length === 0) {
                 logger_1.logger.error(`❌ Gemini returned empty response with model ${m}`);
                 throw new Error('Empty response from Gemini');
@@ -123,7 +166,7 @@ Now write your answer:
     logger_1.logger.error("All Gemini models failed, trying simple prompt as last resort");
     try {
         const genAI = getClient();
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         const simplePrompt = `You are a helpful AI tutor. Answer this question based on the video transcript provided.
 
 Question: ${input.question}

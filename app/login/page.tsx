@@ -84,8 +84,8 @@ export default function LoginPage() {
           return
         }
 
-        // Check for redirect destination
-        let redirectTo = '/dashboard'
+        // Check for redirect destination based on user role
+        let redirectTo = response.data.user.role === 'teacher' ? '/teacher' : '/dashboard'
         try {
           const saved = sessionStorage.getItem('redirectAfterLogin')
           if (saved) {
@@ -116,16 +116,21 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header with Theme Toggle */}
-      <div className="border-b border-border bg-card/50 backdrop-blur-sm">
+    <div className="min-h-screen bg-background relative overflow-hidden">
+      {/* Background decoration */}
+      <div className="absolute inset-0 mesh-gradient" />
+      <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary/8 rounded-full blur-3xl" />
+      <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-chart-5/8 rounded-full blur-3xl" />
+      
+      {/* Header */}
+      <div className="relative z-10 glass">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <Link href="/" className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                <Brain className="w-5 h-5 text-primary-foreground" />
+              <div className="w-9 h-9 bg-gradient-to-br from-primary to-chart-5 rounded-xl flex items-center justify-center shadow-md">
+                <Brain className="w-5 h-5 text-white" />
               </div>
-              <span className="text-xl font-black font-montserrat text-foreground">LEARNX</span>
+              <span className="text-xl font-black font-montserrat gradient-text">LEARNX</span>
             </Link>
             <ThemeToggle />
           </div>
@@ -133,11 +138,10 @@ export default function LoginPage() {
       </div>
 
       {/* Login Form */}
-      <div className="flex items-center justify-center p-4 py-12">
-        <div className="w-full max-w-md">
-          {/* 🛡️ Offline indicator */}
+      <div className="relative z-10 flex items-center justify-center p-4 py-16">
+        <div className="w-full max-w-md animate-scale-in">
           {!isOnline && (
-            <Alert className="mb-4 border-yellow-500/50 bg-yellow-500/10">
+            <Alert className="mb-4 border-yellow-500/50 bg-yellow-500/10 backdrop-blur-sm">
               <WifiOff className="h-4 w-4 text-yellow-600" />
               <AlertDescription className="font-open-sans text-yellow-600">
                 You are offline. Please check your internet connection.
@@ -145,14 +149,17 @@ export default function LoginPage() {
             </Alert>
           )}
           
-          <Card className="border-border">
-            <CardHeader className="text-center">
+          <Card className="border-border/50 bg-card/80 backdrop-blur-xl shadow-xl shadow-primary/5">
+            <CardHeader className="text-center pb-2">
+              <div className="mx-auto mb-4 w-14 h-14 bg-gradient-to-br from-primary to-chart-5 rounded-2xl flex items-center justify-center shadow-lg">
+                <Brain className="w-7 h-7 text-white" />
+              </div>
               <CardTitle className="text-2xl font-black font-montserrat">Welcome Back</CardTitle>
               <CardDescription className="font-open-sans">Sign in to continue your learning journey</CardDescription>
             </CardHeader>
             <CardContent>
               {error && (
-                <Alert className="mb-4 border-destructive/50 text-destructive">
+                <Alert className="mb-4 border-destructive/50 bg-destructive/5 text-destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription className="font-open-sans">{error}</AlertDescription>
                 </Alert>
@@ -160,7 +167,7 @@ export default function LoginPage() {
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email" className="font-open-sans">
+                  <Label htmlFor="email" className="font-open-sans text-sm font-medium">
                     Email
                   </Label>
                   <Input
@@ -170,12 +177,12 @@ export default function LoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    className="font-open-sans"
+                    className="font-open-sans h-11 bg-muted/50 border-border/50 focus:border-primary/50 focus:ring-primary/20"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="password" className="font-open-sans">
+                  <Label htmlFor="password" className="font-open-sans text-sm font-medium">
                     Password
                   </Label>
                   <div className="relative">
@@ -186,7 +193,7 @@ export default function LoginPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
-                      className="pr-10 font-open-sans"
+                      className="pr-10 font-open-sans h-11 bg-muted/50 border-border/50 focus:border-primary/50 focus:ring-primary/20"
                     />
                     <Button
                       type="button"
@@ -204,16 +211,19 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center">
+                <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
-                    <input id="remember" type="checkbox" className="rounded border-border" />
+                    <input id="remember" type="checkbox" className="rounded border-border accent-primary" />
                     <Label htmlFor="remember" className="text-sm font-open-sans">
                       Remember me
                     </Label>
                   </div>
+                  <Link href="/forgot-password" className="text-sm text-primary hover:underline font-open-sans font-medium">
+                    Forgot password?
+                  </Link>
                 </div>
 
-                <Button type="submit" className="w-full font-open-sans" disabled={isLoading}>
+                <Button type="submit" className="w-full h-11 font-open-sans font-semibold bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 shadow-md shadow-primary/20" disabled={isLoading}>
                   {isLoading ? "Signing in..." : "Sign In"}
                 </Button>
               </form>
@@ -222,8 +232,8 @@ export default function LoginPage() {
                 <Separator className="my-4" />
                 <div className="text-center">
                   <p className="text-sm text-muted-foreground font-open-sans">
-                    Don't have an account?{" "}
-                    <Link href="/signup" className="text-accent hover:underline font-medium">
+                    Don&apos;t have an account?{" "}
+                    <Link href="/signup" className="text-primary hover:underline font-semibold">
                       Sign up
                     </Link>
                   </p>
@@ -232,7 +242,7 @@ export default function LoginPage() {
             </CardContent>
           </Card>
 
-          <div className="mt-8 text-center">
+          <div className="mt-6 text-center">
             <Link
               href="/"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors font-open-sans"

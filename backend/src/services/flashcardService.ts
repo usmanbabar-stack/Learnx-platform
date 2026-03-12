@@ -16,9 +16,8 @@ function getClient(): GoogleGenerativeAI {
   return new GoogleGenerativeAI(getApiKey());
 }
 
-// Use gemma-3-12b for flashcards - 10 RPM, 14k RPD quota
-// Only 1 API call per video for flashcards
-const MODEL_NAME = 'gemma-3-12b-it';
+// Use gemini-3-flash-preview for flashcards, with fallback
+const MODELS_TO_TRY = ['gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-3.1-flash-lite-preview'];
 
 // Limit transcript size to reduce token usage
 const MAX_TRANSCRIPT_CHARS = 25000;
@@ -134,84 +133,125 @@ Output strict JSON:
 Make questions varied: definitions, concepts, comparisons, applications.
 Ensure answers are educational and accurate based on the video content.`;
 
-    try {
-      logger.info(`Flashcard: Using ${MODEL_NAME}`);
+    // Retry logic for transient errors (503, 500, etc.)
+    const maxRetries = 2;
+    let lastError: any = null;
 
-      const genAI = getClient();
-      const model = genAI.getGenerativeModel({ model: MODEL_NAME });
-
-      const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.4,
-          topP: 0.9,
-          maxOutputTokens: 4096,
-        },
-      });
-
-      const text = result.response.text();
-
-      logger.info(`Gemini raw response length for flashcards: ${text?.length || 0}`);
-
-      if (!text || text.trim().length === 0) {
-        logger.warn(`${MODEL_NAME} returned empty response for flashcards`);
-        return this.getFallbackFlashcards(videoId, videoTitle);
-      }
-
-      // Extract JSON from response
-      let jsonStr = text.trim();
-      if (jsonStr.startsWith('```json')) {
-        jsonStr = jsonStr.slice(7);
-      } else if (jsonStr.startsWith('```')) {
-        jsonStr = jsonStr.slice(3);
-      }
-      if (jsonStr.endsWith('```')) {
-        jsonStr = jsonStr.slice(0, -3);
-      }
-      jsonStr = jsonStr.trim();
-
-      let parsed;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const modelName = attempt < MODELS_TO_TRY.length ? MODELS_TO_TRY[attempt] : MODELS_TO_TRY[MODELS_TO_TRY.length - 1];
       try {
-        parsed = JSON.parse(jsonStr);
-      } catch (parseError) {
-        logger.error('Flashcard JSON parse failed, raw text:', jsonStr.slice(0, 500));
-        return this.getFallbackFlashcards(videoId, videoTitle);
+        if (attempt > 0) {
+          const delay = Math.pow(2, attempt) * 1000;
+          logger.info(`Flashcard retry attempt ${attempt}/${maxRetries} after ${delay}ms delay`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+
+        logger.info(`Flashcard: Using ${modelName} (attempt ${attempt + 1}/${maxRetries + 1})`);
+
+        const genAI = getClient();
+        const model = genAI.getGenerativeModel({ model: modelName });
+
+        const result = await model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.4,
+            topP: 0.9,
+            maxOutputTokens: 4096,
+          },
+        });
+
+        const text = result.response.text();
+
+        logger.info(`Gemini raw response length for flashcards: ${text?.length || 0}`);
+
+        if (!text || text.trim().length === 0) {
+          logger.warn(`${modelName} returned empty response for flashcards`);
+          if (attempt < maxRetries) {
+            throw new Error('Empty response, will retry');
+          }
+          return this.getFallbackFlashcards(videoId, videoTitle);
+        }
+
+        // Extract JSON from response
+        let jsonStr = text.trim();
+        if (jsonStr.startsWith('```json')) {
+          jsonStr = jsonStr.slice(7);
+        } else if (jsonStr.startsWith('```')) {
+          jsonStr = jsonStr.slice(3);
+        }
+        if (jsonStr.endsWith('```')) {
+          jsonStr = jsonStr.slice(0, -3);
+        }
+        jsonStr = jsonStr.trim();
+
+        let parsed;
+        try {
+          parsed = JSON.parse(jsonStr);
+        } catch (parseError) {
+          logger.error('Flashcard JSON parse failed, raw text:', jsonStr.slice(0, 500));
+          if (attempt < maxRetries) {
+            throw new Error('JSON parse failed, will retry');
+          }
+          return this.getFallbackFlashcards(videoId, videoTitle);
+        }
+
+        const cards: Flashcard[] = (parsed.cards || []).map((c: any, index: number) => ({
+          id: `card-${index + 1}`,
+          question: c.question || 'Question not available',
+          answer: c.answer || 'Answer not available',
+          category: c.category || 'General',
+          difficulty: this.validateDifficulty(c.difficulty),
+          timestamp: c.timestamp || undefined,
+        }));
+
+        // Extract unique categories
+        const categories = [...new Set(cards.map(c => c.category))];
+
+        const deck: FlashcardDeck = {
+          videoId,
+          videoTitle,
+          cards,
+          totalCards: cards.length,
+          categories,
+          generatedAt: new Date().toISOString(),
+        };
+
+        logger.info(`✅ Flashcards generated: ${cards.length} cards in ${categories.length} categories`);
+        return deck;
+
+      } catch (error: any) {
+        lastError = error;
+        const errorMsg = error?.message || String(error);
+        const isRetryable = error?.status === 503 || 
+                           error?.status === 500 || 
+                           errorMsg.includes('503') || 
+                           errorMsg.includes('500') ||
+                           errorMsg.includes('high demand') ||
+                           errorMsg.includes('timeout') ||
+                           errorMsg.includes('UNAVAILABLE') ||
+                           errorMsg.includes('Empty response') ||
+                           errorMsg.includes('JSON parse failed');
+
+        if (isRetryable && attempt < maxRetries) {
+          logger.warn(`Flashcard generation failed with retryable error: ${errorMsg.slice(0, 200)}`);
+          continue; // Retry
+        } else {
+          // Non-retryable error or max retries reached
+          logger.error('Flashcard generation failed:', {
+            message: error?.message,
+            status: error?.status,
+            statusText: error?.statusText,
+            attempt: attempt + 1,
+            stack: error?.stack?.slice(0, 500)
+          });
+          break; // Exit retry loop
+        }
       }
-
-      const cards: Flashcard[] = (parsed.cards || []).map((c: any, index: number) => ({
-        id: `card-${index + 1}`,
-        question: c.question || 'Question not available',
-        answer: c.answer || 'Answer not available',
-        category: c.category || 'General',
-        difficulty: this.validateDifficulty(c.difficulty),
-        timestamp: c.timestamp || undefined,
-      }));
-
-      // Extract unique categories
-      const categories = [...new Set(cards.map(c => c.category))];
-
-      const deck: FlashcardDeck = {
-        videoId,
-        videoTitle,
-        cards,
-        totalCards: cards.length,
-        categories,
-        generatedAt: new Date().toISOString(),
-      };
-
-      logger.info(`✅ Flashcards generated: ${cards.length} cards in ${categories.length} categories`);
-      return deck;
-
-    } catch (error: any) {
-      logger.error('Flashcard generation failed:', {
-        message: error?.message,
-        status: error?.status,
-        statusText: error?.statusText,
-        errorDetails: error?.errorDetails,
-        stack: error?.stack?.slice(0, 500)
-      });
-      return this.getFallbackFlashcards(videoId, videoTitle);
     }
+
+    // All retries failed, return fallback
+    logger.warn(`All flashcard generation attempts failed, returning fallback`);
+    return this.getFallbackFlashcards(videoId, videoTitle);
   }
 
   private prepareTranscriptWithTimestamps(transcript: TranscriptSegment[]): string {

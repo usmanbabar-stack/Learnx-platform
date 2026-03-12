@@ -5,12 +5,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Clock, Trophy, Zap, BookOpen, Play, RefreshCw, WifiOff } from "lucide-react"
+import { Clock, Trophy, Zap, BookOpen, Play, RefreshCw, WifiOff, Mic, FileText, Sparkles, Brain } from "lucide-react"
 import { AuthGuard } from "@/components/auth-guard"
 import { Navigation } from "@/components/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { apiService, safeStorage } from "@/lib/api"
+import { useRouter } from "next/navigation"
 
 interface DashboardStats {
   totalHours: number
@@ -30,6 +31,7 @@ interface ContinueWatchingVideo {
 }
 
 export default function DashboardPage() {
+  const router = useRouter()
   const [userData, setUserData] = useState<any>(null)
   const [stats, setStats] = useState<DashboardStats>({
     totalHours: 0,
@@ -41,6 +43,15 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isOnline, setIsOnline] = useState(true)
+
+  // Redirect teachers to their dashboard
+  useEffect(() => {
+    const user = safeStorage.getJSON<any>('learnx_user', null)
+    if (user && user.type === 'teacher') {
+      router.push('/teacher')
+      return
+    }
+  }, [router])
 
   useEffect(() => {
     // Monitor online status
@@ -133,13 +144,15 @@ export default function DashboardPage() {
 
   return (
     <AuthGuard>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background relative">
+        <div className="absolute inset-0 mesh-gradient pointer-events-none" />
+        <div className="relative z-10">
         <Navigation />
 
         <main className="container mx-auto px-4 py-8 max-w-7xl">
-          {/* 🛡️ Offline/Error Banner */}
+          {/* Offline/Error Banner */}
           {!isOnline && (
-            <Alert className="mb-6 border-yellow-500/50 bg-yellow-500/10">
+            <Alert className="mb-6 border-yellow-500/50 bg-yellow-500/10 backdrop-blur-sm">
               <WifiOff className="h-4 w-4 text-yellow-600" />
               <AlertDescription className="font-open-sans text-yellow-600">
                 You are offline. Some features may be unavailable.
@@ -148,10 +161,10 @@ export default function DashboardPage() {
           )}
           
           {error && (
-            <Alert className="mb-6 border-destructive/50 bg-destructive/10">
+            <Alert className="mb-6 border-destructive/50 bg-destructive/5 backdrop-blur-sm">
               <AlertDescription className="font-open-sans text-destructive flex items-center justify-between">
                 <span>{error}</span>
-                <Button variant="outline" size="sm" onClick={handleRetry} disabled={loading}>
+                <Button variant="outline" size="sm" onClick={handleRetry} disabled={loading} className="border-border/50">
                   <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                   Retry
                 </Button>
@@ -160,16 +173,16 @@ export default function DashboardPage() {
           )}
 
           {/* Welcome Header */}
-          <div className="mb-8 flex items-center justify-between">
+          <div className="mb-8 flex items-center justify-between animate-slide-up">
             <div className="flex items-center gap-4">
-              <Avatar className="h-16 w-16">
-                <AvatarFallback className="bg-primary text-primary-foreground text-xl">
+              <Avatar className="h-16 w-16 border-2 border-primary/20 shadow-lg">
+                <AvatarFallback className="bg-gradient-to-br from-primary to-chart-5 text-white text-xl font-bold">
                   {getInitials(userData?.firstName, userData?.lastName)}
                 </AvatarFallback>
               </Avatar>
               <div>
                 <h1 className="text-3xl font-black font-montserrat">
-                  Welcome back, {userData?.firstName || "Student"}!
+                  Welcome back, <span className="gradient-text">{userData?.firstName || "Student"}</span>!
                 </h1>
                 <p className="text-muted-foreground font-open-sans">
                   Ready to continue your learning journey?
@@ -179,62 +192,53 @@ export default function DashboardPage() {
           </div>
 
           {/* Stats Overview */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
-            <Card>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-8 animate-slide-up stagger-1">
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Hours</CardTitle>
-                <Clock className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium font-open-sans">Total Hours</CardTitle>
+                <div className="stat-icon-purple">
+                  <Clock className="h-4 w-4" />
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
+                <div className="text-2xl font-bold font-montserrat">
                   {loading ? '...' : `${stats.totalHours}h`}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground font-open-sans">
                   {stats.totalHours > 0 ? 'Keep learning!' : 'Start learning to track hours'}
                 </p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Videos Completed</CardTitle>
-                <Trophy className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {loading ? '...' : stats.videosWatched}
+                <CardTitle className="text-sm font-medium font-open-sans">Current Streak</CardTitle>
+                <div className="stat-icon-emerald">
+                  <Zap className="h-4 w-4" />
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {stats.videosWatched > 0 ? 'Great progress!' : 'Complete videos to earn points'}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Current Streak</CardTitle>
-                <Zap className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
+                <div className="text-2xl font-bold font-montserrat">
                   {loading ? '...' : `${stats.currentStreak} days`}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground font-open-sans">
                   {stats.currentStreak > 0 ? 'Keep it up!' : 'Learn daily to build streaks'}
                 </p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Experience Points</CardTitle>
-                <BookOpen className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium font-open-sans">Experience Points</CardTitle>
+                <div className="stat-icon-blue">
+                  <BookOpen className="h-4 w-4" />
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
+                <div className="text-2xl font-bold font-montserrat">
                   {loading ? '...' : `${stats.experiencePoints} XP`}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground font-open-sans">
                   Level {Math.floor(stats.experiencePoints / 1000) + 1}
                 </p>
               </CardContent>
@@ -243,10 +247,12 @@ export default function DashboardPage() {
 
           {/* Continue Watching Section */}
           {continueWatching.length > 0 && (
-            <Card className="mb-8">
+            <Card className="mb-8 border-border/50 bg-card/80 backdrop-blur-sm animate-slide-up stagger-2">
               <CardHeader>
                 <CardTitle className="font-montserrat flex items-center gap-2">
-                  <Play className="h-5 w-5" />
+                  <div className="stat-icon-purple">
+                    <Play className="h-4 w-4" />
+                  </div>
                   Continue Watching
                 </CardTitle>
                 <CardDescription className="font-open-sans">
@@ -257,14 +263,14 @@ export default function DashboardPage() {
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {continueWatching.map((video) => (
                     <Link key={video.videoId} href={`/learn/${video.videoId}`}>
-                      <Card className="hover:shadow-md transition-shadow cursor-pointer overflow-hidden">
+                      <Card className="hover-lift cursor-pointer overflow-hidden border-border/50 bg-card/60">
                         <div className="relative">
                           <img 
                             src={video.thumbnail || `https://img.youtube.com/vi/${video.videoId}/mqdefault.jpg`}
                             alt={video.title}
                             className="w-full aspect-video object-cover"
                           />
-                          <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1">
+                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2">
                             <div className="flex justify-between text-white text-xs">
                               <span>{formatDuration(video.progressTime)}</span>
                               <span>{formatDuration(video.totalDuration)}</span>
@@ -292,8 +298,8 @@ export default function DashboardPage() {
           )}
 
           {/* Get Started Section */}
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card>
+          <div className="grid gap-6 md:grid-cols-2 mb-8 animate-slide-up stagger-3">
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
               <CardHeader>
                 <CardTitle className="font-montserrat">Start Learning</CardTitle>
                 <CardDescription className="font-open-sans">
@@ -302,14 +308,14 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <Link href="/learn">
-                  <Button className="w-full font-open-sans">
+                  <Button className="w-full font-open-sans font-semibold bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 shadow-md shadow-primary/20">
                     Browse Learning Videos
                   </Button>
                 </Link>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
               <CardHeader>
                 <CardTitle className="font-montserrat">Your Progress</CardTitle>
                 <CardDescription className="font-open-sans">
@@ -318,7 +324,7 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <Link href="/progress">
-                  <Button variant="outline" className="w-full font-open-sans">
+                  <Button variant="outline" className="w-full font-open-sans border-border/50">
                     View Progress
                   </Button>
                 </Link>
@@ -326,29 +332,112 @@ export default function DashboardPage() {
             </Card>
           </div>
 
+          {/* AI Mock Interview Section */}
+          <Card className="mb-6 border-border/50 bg-card/80 backdrop-blur-sm animate-slide-up stagger-4">
+            <CardHeader>
+              <CardTitle className="font-montserrat flex items-center gap-2">
+                <div className="stat-icon-amber">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                AI Mock Interview
+              </CardTitle>
+              <CardDescription className="font-open-sans">
+                Practice interviews with AI-powered feedback and analysis
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Link href="/tools/mock-interview">
+                <Card className="hover-lift cursor-pointer overflow-hidden border-border/50 bg-gradient-to-br from-primary/5 to-chart-5/10">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-4">
+                      <div className="p-4 bg-gradient-to-br from-primary to-chart-5 rounded-2xl shadow-lg">
+                        <Mic className="h-8 w-8 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold font-montserrat mb-1">
+                          Start Mock Interview
+                        </h3>
+                        <p className="text-sm text-muted-foreground font-open-sans">
+                          Get real-time feedback, improve your communication skills, and ace your next interview
+                        </p>
+                      </div>
+                      <div className="hidden sm:block">
+                        <Button className="font-open-sans font-semibold bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 shadow-md shadow-primary/20">
+                          Launch Interview
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            </CardContent>
+          </Card>
+
+          {/* Past Paper Analyzer Section */}
+          <Card className="mb-6 border-border/50 bg-card/80 backdrop-blur-sm animate-slide-up stagger-5">
+            <CardHeader>
+              <CardTitle className="font-montserrat flex items-center gap-2">
+                <div className="stat-icon-blue">
+                  <Brain className="h-4 w-4" />
+                </div>
+                Past Paper Analyzer
+              </CardTitle>
+              <CardDescription className="font-open-sans">
+                Upload exam papers and get AI-powered insights on patterns and topics
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Link href="/past-paper-analyzer">
+                <Card className="hover-lift cursor-pointer overflow-hidden border-border/50 bg-gradient-to-br from-purple-500/5 to-blue-500/10">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-4">
+                      <div className="p-4 bg-gradient-to-br from-purple-500 to-blue-500 rounded-2xl shadow-lg">
+                        <FileText className="h-8 w-8 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold font-montserrat mb-1">
+                          Analyze Past Papers
+                        </h3>
+                        <p className="text-sm text-muted-foreground font-open-sans">
+                          Upload 2-10 exam papers to discover patterns, topic frequency, and get personalized study recommendations
+                        </p>
+                      </div>
+                      <div className="hidden sm:block">
+                        <Button className="font-open-sans font-semibold bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 shadow-md">
+                          Upload Papers
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            </CardContent>
+          </Card>
+
           {/* User Info Card */}
-          <Card className="mt-6">
+          <Card className="mt-6 border-border/50 bg-card/80 backdrop-blur-sm">
             <CardHeader>
               <CardTitle className="font-montserrat">Account Information</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 font-open-sans">
-              <div className="flex justify-between">
+            <CardContent className="space-y-3 font-open-sans">
+              <div className="flex justify-between py-1">
                 <span className="text-muted-foreground">Name:</span>
                 <span className="font-medium">
                   {userData?.firstName} {userData?.lastName}
                 </span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between py-1">
                 <span className="text-muted-foreground">Email:</span>
                 <span className="font-medium">{userData?.email}</span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between py-1">
                 <span className="text-muted-foreground">Role:</span>
                 <span className="font-medium capitalize">{userData?.type || "student"}</span>
               </div>
             </CardContent>
           </Card>
         </main>
+        </div>
       </div>
     </AuthGuard>
   )

@@ -245,13 +245,15 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
 
   return (
     <AuthGuard>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background relative">
+        <div className="absolute inset-0 mesh-gradient pointer-events-none" />
+        <div className="relative z-10">
         <Navigation />
 
         <div className="container mx-auto px-4 py-6 max-w-5xl">
           {/* Header */}
-          <div className="mb-6">
-            <Button variant="ghost" size="sm" asChild className="mb-4">
+          <div className="mb-6 animate-slide-up">
+            <Button variant="ghost" size="sm" asChild className="mb-4 hover:bg-muted/50">
               <Link href={videoId ? `/learn/${videoId}` : "/learn"}>
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to Video
@@ -261,8 +263,8 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-3xl font-black font-montserrat flex items-center gap-2">
-                  <FileText className="w-8 h-8 text-accent" />
-                  Summary
+                  <FileText className="w-8 h-8 text-primary" />
+                  <span className="gradient-text">Summary</span>
                 </h1>
                 <p className="text-muted-foreground font-open-sans mt-2">
                   AI-generated key points from this video
@@ -314,7 +316,7 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
 
           {/* Waiting for Transcript State */}
           {transcriptStatus === 'waiting' && (
-            <Card>
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
               <CardContent className="py-12">
                 <div className="flex flex-col items-center justify-center">
                   <Loader2 className="w-8 h-8 animate-spin text-yellow-500 mb-4" />
@@ -332,7 +334,7 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
 
           {/* Loading/Generating State */}
           {loading && transcriptStatus !== 'waiting' && (
-            <Card>
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
               <CardContent className="py-12">
                 <div className="flex flex-col items-center justify-center">
                   <Loader2 className="w-8 h-8 animate-spin text-accent mb-4" />
@@ -346,7 +348,7 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
 
           {/* Error State */}
           {error && !loading && (
-            <Card>
+            <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
               <CardContent className="py-12">
                 <div className="flex flex-col items-center justify-center text-center">
                   <AlertCircle className="w-12 h-12 text-destructive mb-4" />
@@ -366,10 +368,12 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
             <div className="space-y-6">
               {/* Quick Stats */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card>
+                <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
                   <CardContent className="pt-6">
                     <div className="flex items-center gap-3">
-                      <Clock className="w-5 h-5 text-accent" />
+                      <div className="stat-icon-purple p-2 rounded-xl">
+                        <Clock className="w-5 h-5 text-primary" />
+                      </div>
                       <div>
                         <p className="text-sm text-muted-foreground">Watch Time</p>
                         <p className="font-bold font-montserrat">{summary.estimatedWatchTime}</p>
@@ -378,10 +382,12 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
                   <CardContent className="pt-6">
                     <div className="flex items-center gap-3">
-                      <Target className="w-5 h-5 text-accent" />
+                      <div className="stat-icon-amber p-2 rounded-xl">
+                        <Target className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                      </div>
                       <div>
                         <p className="text-sm text-muted-foreground">Difficulty</p>
                         <Badge className={getDifficultyColor(summary.difficulty)}>
@@ -392,10 +398,12 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover-lift">
                   <CardContent className="pt-6">
                     <div className="flex items-center gap-3">
-                      <BookOpen className="w-5 h-5 text-accent" />
+                      <div className="stat-icon-emerald p-2 rounded-xl">
+                        <BookOpen className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                      </div>
                       <div>
                         <p className="text-sm text-muted-foreground">Target Audience</p>
                         <p className="font-medium font-open-sans text-sm">{summary.targetAudience}</p>
@@ -406,10 +414,10 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
               </div>
 
               {/* Overview */}
-              <Card>
+              <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle className="font-montserrat flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-accent" />
+                    <FileText className="w-5 h-5 text-primary" />
                     Overview
                   </CardTitle>
                 </CardHeader>
@@ -421,10 +429,10 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
               </Card>
 
               {/* Key Points */}
-              <Card>
+              <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle className="font-montserrat flex items-center gap-2">
-                    <Lightbulb className="w-5 h-5 text-accent" />
+                    <Lightbulb className="w-5 h-5 text-primary" />
                     Key Points
                   </CardTitle>
                   <CardDescription>
@@ -435,7 +443,7 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
                   <ul className="space-y-3">
                     {summary.keyPoints.map((point, index) => (
                       <li key={index} className="flex gap-3">
-                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-accent/10 text-accent flex items-center justify-center text-sm font-bold">
+                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold">
                           {index + 1}
                         </span>
                         <p className="font-open-sans text-muted-foreground">{point}</p>
@@ -446,10 +454,10 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
               </Card>
 
               {/* Main Topics */}
-              <Card>
+              <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle className="font-montserrat flex items-center gap-2">
-                    <BookOpen className="w-5 h-5 text-accent" />
+                    <BookOpen className="w-5 h-5 text-primary" />
                     Main Topics
                   </CardTitle>
                 </CardHeader>
@@ -466,10 +474,10 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
 
               {/* Key Timestamps */}
               {summary.keyTimestamps.length > 0 && (
-                <Card>
+                <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                   <CardHeader>
                     <CardTitle className="font-montserrat flex items-center gap-2">
-                      <Play className="w-5 h-5 text-accent" />
+                      <Play className="w-5 h-5 text-primary" />
                       Key Moments
                     </CardTitle>
                     <CardDescription>
@@ -499,7 +507,7 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
               )}
 
               {/* Footer */}
-              <Card>
+              <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardContent className="pt-6">
                   <p className="text-xs text-muted-foreground text-center font-open-sans">
                     Summary generated on {new Date(summary.generatedAt).toLocaleString()}
@@ -508,6 +516,7 @@ Generated: ${new Date(summary.generatedAt).toLocaleString()}
               </Card>
             </div>
           )}
+        </div>
         </div>
       </div>
     </AuthGuard>

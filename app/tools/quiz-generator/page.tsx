@@ -144,23 +144,25 @@ export default function QuizGeneratorPage() {
 
   return (
     <AuthGuard>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background relative">
+        <div className="absolute inset-0 mesh-gradient pointer-events-none" />
+        <div className="relative z-10">
         <Navigation />
 
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {step === "setup" && (
-            <div className="space-y-6">
+            <div className="space-y-6 animate-slide-up">
               <div className="text-center">
-                <div className="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Brain className="w-8 h-8 text-accent" />
+                <div className="w-16 h-16 stat-icon-purple rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Brain className="w-8 h-8 text-primary" />
                 </div>
-                <h1 className="text-3xl font-black font-montserrat mb-2">AI Quiz Generator</h1>
+                <h1 className="text-3xl font-black font-montserrat mb-2"><span className="gradient-text">AI Quiz Generator</span></h1>
                 <p className="text-muted-foreground font-open-sans">
                   Generate personalized quizzes from any topic or content using AI
                 </p>
               </div>
 
-              <Card className="hover-glow">
+              <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle className="font-montserrat">Quiz Configuration</CardTitle>
                   <CardDescription className="font-open-sans">
@@ -230,7 +232,7 @@ export default function QuizGeneratorPage() {
                   <Button
                     onClick={handleGenerate}
                     disabled={!topic || !difficulty || !questionCount}
-                    className="w-full font-open-sans"
+                    className="w-full font-semibold bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 shadow-md shadow-primary/20"
                     size="lg"
                   >
                     <Sparkles className="w-5 h-5 mr-2" />
@@ -244,16 +246,16 @@ export default function QuizGeneratorPage() {
           {step === "generating" && (
             <div className="space-y-6">
               <div className="text-center">
-                <div className="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
-                  <Sparkles className="w-8 h-8 text-accent" />
+                <div className="w-16 h-16 stat-icon-purple rounded-2xl flex items-center justify-center mx-auto mb-4 animate-pulse">
+                  <Sparkles className="w-8 h-8 text-primary" />
                 </div>
-                <h1 className="text-3xl font-black font-montserrat mb-2">Generating Your Quiz</h1>
+                <h1 className="text-3xl font-black font-montserrat mb-2"><span className="gradient-text">Generating Your Quiz</span></h1>
                 <p className="text-muted-foreground font-open-sans">
                   AI is analyzing your topic and creating personalized questions...
                 </p>
               </div>
 
-              <Card className="hover-glow">
+              <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardContent className="p-8">
                   <div className="space-y-4">
                     <div className="flex justify-between text-sm font-open-sans">
@@ -294,7 +296,7 @@ export default function QuizGeneratorPage() {
 
               <Progress value={((currentQuestion + 1) / dummyQuestions.length) * 100} />
 
-              <Card className="hover-glow">
+              <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardHeader>
                   <CardTitle className="font-montserrat text-lg">{dummyQuestions[currentQuestion].question}</CardTitle>
                 </CardHeader>
@@ -308,7 +310,7 @@ export default function QuizGeneratorPage() {
                     {dummyQuestions[currentQuestion].options.map((option, index) => (
                       <div
                         key={index}
-                        className="flex items-center space-x-2 p-3 rounded-lg hover:bg-muted/50 transition-colors"
+                        className="flex items-center space-x-2 p-3 rounded-xl hover:bg-muted/30 transition-colors"
                       >
                         <RadioGroupItem value={index.toString()} id={`option-${index}`} />
                         <Label htmlFor={`option-${index}`} className="flex-1 cursor-pointer font-open-sans">
@@ -323,14 +325,14 @@ export default function QuizGeneratorPage() {
                       variant="outline"
                       onClick={handlePreviousQuestion}
                       disabled={currentQuestion === 0}
-                      className="bg-transparent hover-glow"
+                      className="border-border/50"
                     >
                       Previous
                     </Button>
                     <Button
                       onClick={handleNextQuestion}
                       disabled={answers[dummyQuestions[currentQuestion].id] === undefined}
-                      className="hover-glow"
+                      className="font-semibold bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 shadow-md shadow-primary/20"
                     >
                       {currentQuestion === dummyQuestions.length - 1 ? "Finish Quiz" : "Next Question"}
                     </Button>
@@ -343,16 +345,16 @@ export default function QuizGeneratorPage() {
           {step === "results" && (
             <div className="space-y-6">
               <div className="text-center">
-                <div className="w-16 h-16 bg-accent/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Target className="w-8 h-8 text-accent" />
+                <div className="w-16 h-16 stat-icon-purple rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Target className="w-8 h-8 text-primary" />
                 </div>
-                <h1 className="text-3xl font-black font-montserrat mb-2">Quiz Complete!</h1>
+                <h1 className="text-3xl font-black font-montserrat mb-2"><span className="gradient-text">Quiz Complete!</span></h1>
                 <p className="text-muted-foreground font-open-sans">Here are your results for the {topic} quiz</p>
               </div>
 
-              <Card className="hover-glow">
+              <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                 <CardHeader className="text-center">
-                  <CardTitle className="text-4xl font-black font-montserrat text-accent">
+                  <CardTitle className="text-4xl font-black font-montserrat text-primary">
                     {calculateScore().percentage}%
                   </CardTitle>
                   <CardDescription className="font-open-sans">
@@ -400,15 +402,15 @@ export default function QuizGeneratorPage() {
                   </div>
 
                   <div className="flex flex-col sm:flex-row gap-4 mt-6">
-                    <Button onClick={resetQuiz} variant="outline" className="bg-transparent hover-glow">
+                    <Button onClick={resetQuiz} variant="outline" className="border-border/50">
                       <RotateCcw className="w-4 h-4 mr-2" />
                       Create New Quiz
                     </Button>
-                    <Button variant="outline" className="bg-transparent hover-glow">
+                    <Button variant="outline" className="border-border/50">
                       <Download className="w-4 h-4 mr-2" />
                       Download Results
                     </Button>
-                    <Button variant="outline" className="bg-transparent hover-glow">
+                    <Button variant="outline" className="border-border/50">
                       <Share className="w-4 h-4 mr-2" />
                       Share Results
                     </Button>
@@ -417,6 +419,7 @@ export default function QuizGeneratorPage() {
               </Card>
             </div>
           )}
+        </div>
         </div>
       </div>
     </AuthGuard>

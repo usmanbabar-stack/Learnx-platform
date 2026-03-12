@@ -3,15 +3,28 @@ import { logger } from '../utils/logger';
 
 let pool: Pool | null = null;
 
+const shouldUseSsl = (): boolean => {
+  const explicit = process.env.POSTGRES_SSL || process.env.DATABASE_SSL;
+  if (explicit) {
+    return explicit.toLowerCase() === 'true';
+  }
+
+  const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL || '';
+  return connectionString.includes('sslmode=require') || connectionString.includes('neon.tech');
+};
+
 export const getPostgresPool = (): Pool => {
   if (!pool) {
     // Try POSTGRES_URL first, if it exists use it
     // Otherwise build from individual env vars (better for passwords with special chars)
     const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+    const useSsl = shouldUseSsl();
+    const ssl = useSsl ? { rejectUnauthorized: false } : undefined;
     
     if (connectionString) {
       pool = new Pool({
         connectionString,
+        ssl,
         max: 20,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000,
@@ -24,6 +37,7 @@ export const getPostgresPool = (): Pool => {
         host: process.env.POSTGRES_HOST || 'localhost',
         port: parseInt(process.env.POSTGRES_PORT || '5432'),
         database: process.env.POSTGRES_DB || 'learnx',
+        ssl,
         max: 20,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000,
@@ -34,7 +48,7 @@ export const getPostgresPool = (): Pool => {
       logger.error('Unexpected PostgreSQL pool error:', err);
     });
 
-    logger.info('PostgreSQL pool created');
+    logger.info(`PostgreSQL pool created${useSsl ? ' with SSL' : ''}`);
   }
   return pool;
 };

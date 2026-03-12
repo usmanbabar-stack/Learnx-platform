@@ -391,6 +391,24 @@ export interface SavedGlossary {
   createdAt?: Date;
 }
 
+export interface SavedQuiz {
+  videoId: string;
+  questions: Array<{
+    id: string;
+    question: string;
+    options: string[];
+    correctAnswer: number;
+    explanation: string;
+    difficulty: 'easy' | 'medium' | 'hard';
+    category: string;
+    timestamp?: string;
+  }>;
+  totalQuestions: number;
+  categories: string[];
+  generationTimeMs?: number;
+  createdAt?: Date;
+}
+
 // Summary Repository functions
 export async function getSummaryByVideoId(videoId: string): Promise<SavedSummary | null> {
   const pool = getPostgresPool();
@@ -505,6 +523,50 @@ export async function deleteGlossary(videoId: string): Promise<boolean> {
     return true;
   }
   return false;
+}
+
+// Quiz Repository functions
+export async function getQuizByVideoId(videoId: string): Promise<SavedQuiz | null> {
+  const pool = getPostgresPool();
+  const query = `SELECT * FROM video_quizzes WHERE video_id = $1`;
+  const result = await pool.query(query, [videoId]);
+  
+  if (result.rows.length === 0) return null;
+  
+  const row = result.rows[0];
+  return {
+    videoId: row.video_id,
+    questions: row.questions || [],
+    totalQuestions: row.total_questions,
+    categories: row.categories || [],
+    generationTimeMs: row.generation_time_ms,
+    createdAt: row.created_at
+  };
+}
+
+export async function saveQuiz(quiz: SavedQuiz): Promise<void> {
+  const pool = getPostgresPool();
+  const query = `
+    INSERT INTO video_quizzes (
+      video_id, questions, total_questions, categories, generation_time_ms
+    ) VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT (video_id) DO UPDATE SET
+      questions = EXCLUDED.questions,
+      total_questions = EXCLUDED.total_questions,
+      categories = EXCLUDED.categories,
+      generation_time_ms = EXCLUDED.generation_time_ms,
+      updated_at = CURRENT_TIMESTAMP
+  `;
+  
+  await pool.query(query, [
+    quiz.videoId,
+    JSON.stringify(quiz.questions),
+    quiz.totalQuestions,
+    JSON.stringify(quiz.categories),
+    quiz.generationTimeMs || null
+  ]);
+  
+  logger.info(`Saved quiz to database for video: ${quiz.videoId}`);
 }
 
 // ============================================

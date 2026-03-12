@@ -13,12 +13,17 @@ export interface VideoSummary {
 }
 export declare class SummaryService {
     private static instance;
+    private inFlightRequests;
+    private cache;
     private constructor();
     static getInstance(): SummaryService;
     generateComprehensiveSummary(transcript: TranscriptSegment[], videoTitle: string, videoChannel?: string): Promise<VideoSummary>;
+    private doGenerateSummary;
     private prepareTranscriptForSummary;
     private validateDifficulty;
     private calculateWatchTime;
+    private getFallbackSummary;
+    private formatTime;
     generateQuickSummary(transcript: TranscriptSegment[]): Promise<string>;
     private sampleTranscript;
 }
