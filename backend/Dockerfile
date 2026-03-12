@@ -1,40 +1,67 @@
-# Stage 1: Install dependencies
-FROM node:18-alpine AS deps
-RUN apk add --no-cache libc6-compat
-WORKDIR /app
+# Multi-stage build for production optimization
+FROM node:20-alpine AS base
 
-# Copy pnpm lockfile and package.json
-COPY pnpm-lock.yaml package.json ./
+# Install system dependencies for Puppeteer, yt-dlp, and ffmpeg
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    python3 \
+    py3-pip \
+    ffmpeg \
+    && rm -rf /var/cache/apk/*
 
-# Install pnpm
-RUN npm i -g pnpm
+# Install yt-dlp for video transcript extraction
+RUN pip3 install --no-cache-dir yt-dlp --break-system-packages
 
-# Install dependencies
-RUN pnpm install --prod --frozen-lockfile
+# Tell Puppeteer to skip installing Chromium. We'll be using the installed package.
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
-# Stage 2: Build the application
-FROM node:18-alpine AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy package files
+COPY package*.json ./
+COPY tsconfig.json ./
+
+# Development stage
+FROM base AS development
+RUN npm ci
 COPY . .
-
-# Build the project
-RUN npm i -g pnpm
-RUN pnpm build
-
-# Stage 3: Production image
-FROM node:18-alpine AS runner
-WORKDIR /app
-
-ENV NODE_ENV=production
-
-# Copy production dependencies and built code
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
-
-# Expose the port the app runs on
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 EXPOSE 3001
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["node", "node_modules/nodemon/bin/nodemon.js", "src/server.ts"]
 
-# Start the server
+# Build stage
+FROM base AS build
+ENV NODE_ENV=development
+RUN npm ci
+RUN npm install -g typescript
+COPY . .
+RUN npm run build
+
+# Production stage
+FROM base AS production
+
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nodejs -u 1001
+
+COPY --from=build /usr/src/app/dist ./dist
+COPY --from=build /usr/src/app/node_modules ./node_modules
+COPY --from=build /usr/src/app/package.json ./package.json
+
+RUN mkdir -p logs && chown -R nodejs:nodejs logs
+USER nodejs
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3001/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+
+EXPOSE 3001
 CMD ["node", "dist/server.js"]

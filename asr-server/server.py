@@ -31,14 +31,6 @@ def load_model(path: str) -> Optional[Model]:
 model_en_us: Optional[Model] = load_model(US_MODEL_PATH)
 model_en_in: Optional[Model] = load_model(IN_MODEL_PATH)
 
-if not model_en_us and not model_en_in:
-    raise RuntimeError(
-        f"No Vosk models found. Expected at least one of:\n"
-        f"- {US_MODEL_PATH}\n"
-        f"- {IN_MODEL_PATH}\n"
-        f"Download from https://alphacephei.com/vosk/models and unzip into asr-server/models/"
-    )
-
 
 def pick_model(lang: str) -> Model:
     """
@@ -64,7 +56,10 @@ def pick_model(lang: str) -> Model:
         return model_en_us
 
     # Fallback: whichever exists
-    return model_en_in or model_en_us  # type: ignore[return-value]
+    selected = model_en_in or model_en_us
+    if selected is None:
+        raise RuntimeError("No Vosk model is loaded")
+    return selected
 
 
 def mp3_to_wav(mp3_path: str, wav_path: str) -> None:
@@ -117,7 +112,13 @@ def transcribe():
     _response_format = request.form.get("response_format", "verbose_json")
     lang = request.form.get("language", "")  # may be "", "auto", "en", "en-IN", "hi", etc.
 
-    model = pick_model(lang)
+    try:
+        model = pick_model(lang)
+    except RuntimeError:
+        return jsonify({
+            "error": "ASR models are not loaded on this server",
+            "hint": "Add Vosk models under /app/models or configure model download",
+        }), 503
 
     with tempfile.TemporaryDirectory() as tmpdir:
         mp3_path = os.path.join(tmpdir, "audio.mp3")
@@ -183,7 +184,7 @@ def health():
         "en_in": model_en_in is not None,
     }
     return jsonify({
-        "status": "healthy",
+        "status": "healthy" if any(models_status.values()) else "degraded",
         "models": models_status,
         "models_loaded": any(models_status.values()),
     })
