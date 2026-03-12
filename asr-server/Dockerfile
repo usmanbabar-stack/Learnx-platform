@@ -1,42 +1,46 @@
 # ASR Server Dockerfile for Vosk Speech Recognition
-FROM python:3.11-slim
+FROM python:3.9-slim
 
-# Install system dependencies including ffmpeg
-RUN apt-get update && apt-get install -y \
+# Set the working directory in the container
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     wget \
     unzip \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /app
-
-# Copy requirements first for better caching
+# Copy the requirements file into the container at /app
 COPY requirements.txt .
 
-# Install Python dependencies
+# Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY server.py .
+# --- Vosk Model Installation ---
+# Create a directory for the models
+RUN mkdir -p /app/models
 
-# Download the Vosk models needed in production so the container does not rely on local bind mounts.
-ARG VOSK_MODEL_US_URL=https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
-ARG VOSK_MODEL_IN_URL=https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip
-RUN mkdir -p /app/models \
-    && wget -qO /tmp/vosk-model-small-en-us-0.15.zip "$VOSK_MODEL_US_URL" \
-    && unzip -q /tmp/vosk-model-small-en-us-0.15.zip -d /app/models \
-    && wget -qO /tmp/vosk-model-small-en-in-0.4.zip "$VOSK_MODEL_IN_URL" \
-    && unzip -q /tmp/vosk-model-small-en-in-0.4.zip -d /app/models \
-    && rm -f /tmp/vosk-model-small-en-us-0.15.zip /tmp/vosk-model-small-en-in-0.4.zip
+# Download and unzip the small English (US) model
+RUN wget -q https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip -O /app/models/en-us.zip && \
+    unzip /app/models/en-us.zip -d /app/models && \
+    rm /app/models/en-us.zip
 
-# Expose port
+# Download and unzip the small English (IN) model
+RUN wget -q https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip -O /app/models/en-in.zip && \
+    unzip /app/models/en-in.zip -d /app/models && \
+    rm /app/models/en-in.zip
+# --- End Vosk Model Installation ---
+
+# Copy the rest of the application code into the container at /app
+COPY . .
+
+# Make port 8000 available to the world outside this container
 EXPOSE 8000
 
-# Health check endpoint (add to server.py if not exists)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+# Define environment variable
+ENV ASR_PORT=8000
+ENV PYTHONUNBUFFERED=1
 
-# Run the server
+# Run server.py when the container launches
 CMD ["python", "server.py"]
