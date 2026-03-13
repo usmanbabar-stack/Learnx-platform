@@ -61,7 +61,7 @@ COPY --from=build /usr/src/app/dist ./dist
 COPY --from=build /usr/src/app/node_modules ./node_modules
 COPY --from=build /usr/src/app/package.json ./package.json
 
-RUN mkdir -p logs && chown -R nodejs:nodejs logs
+RUN mkdir -p logs uploads/lectures && chown -R nodejs:nodejs logs uploads
 USER nodejs
 
 # Give the server up to 2 min to connect to all external services before

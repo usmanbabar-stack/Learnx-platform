@@ -5,10 +5,15 @@ import { logger } from '../utils/logger';
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || join(__dirname, '../../uploads/lectures');
 
-// Ensure uploads directory exists
+// Ensure uploads directory exists (non-fatal if it can't be created at import time)
 if (!existsSync(UPLOADS_DIR)) {
-  mkdirSync(UPLOADS_DIR, { recursive: true });
-  logger.info(`Created uploads directory: ${UPLOADS_DIR}`);
+  try {
+    mkdirSync(UPLOADS_DIR, { recursive: true });
+    logger.info(`Created uploads directory: ${UPLOADS_DIR}`);
+  } catch (err: any) {
+    logger.warn(`Could not create uploads directory at startup: ${err.message}. ` +
+      `Set UPLOADS_DIR env var to a writable path or pre-create the directory.`);
+  }
 }
 
 // Configure multer storage
