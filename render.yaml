@@ -60,6 +60,8 @@ services:
         value: "true"
       - key: YTDLP_SUB_LANGS
         value: all
+      - key: SCRAPER_ENABLED
+        value: "false"
 
   - type: web
     name: learnx-asr
