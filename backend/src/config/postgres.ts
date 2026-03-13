@@ -28,6 +28,7 @@ export const getPostgresPool = (): Pool => {
         max: 20,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000,
+        options: '-c search_path=public',
       });
     } else {
       // Use individual config (handles special chars in password better)
@@ -41,6 +42,7 @@ export const getPostgresPool = (): Pool => {
         max: 20,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 10000,
+        options: '-c search_path=public',
       });
     }
 
