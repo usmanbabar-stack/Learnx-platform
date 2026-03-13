@@ -10,25 +10,32 @@ export class YouTubeScraperService {
   private browser: Browser | null = null;
   private readonly CACHE_TTL = 3600; // 1 hour
   private readonly MAX_RESULTS = 50;
-  private readonly BROWSER_POOL_SIZE = 3;
+  // Pool size 1 on free-tier hosts; set SCRAPER_BROWSER_POOL=3 locally for higher throughput
+  private readonly BROWSER_POOL_SIZE = parseInt(process.env.SCRAPER_BROWSER_POOL || '1', 10);
+  // Set SCRAPER_ENABLED=false to disable Chrome entirely (e.g. Render free tier)
+  private readonly scraperEnabled = process.env.SCRAPER_ENABLED !== 'false';
   private browserPool: Browser[] = [];
   private poolIndex = 0;
 
   async initialize(): Promise<void> {
+    if (!this.scraperEnabled) {
+      logger.info('YouTube scraper (Chrome) is disabled via SCRAPER_ENABLED=false — skipping browser init');
+      return;
+    }
     try {
-      // Initialize browser pool for better performance
       for (let i = 0; i < this.BROWSER_POOL_SIZE; i++) {
         const browser = await puppeteer.launch({
-        headless: 'new',
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
+          headless: 'new',
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
             '--disable-gpu',
-            '--disable-images', // Don't load images
+            '--disable-images',
             '--disable-plugins',
             '--disable-extensions',
             '--disable-background-timer-throttling',
@@ -36,16 +43,14 @@ export class YouTubeScraperService {
             '--disable-renderer-backgrounding',
             '--disable-features=TranslateUI',
             '--disable-ipc-flooding-protection',
-            '--memory-pressure-off',
-            '--max_old_space_size=4096'
-          ]
+            '--js-flags=--max-old-space-size=128',
+          ],
         });
         this.browserPool.push(browser);
       }
-      
-      // Keep the main browser for backward compatibility
+
       this.browser = this.browserPool[0];
-      logger.info(`YouTube scraper browser pool initialized with ${this.BROWSER_POOL_SIZE} browsers`);
+      logger.info(`YouTube scraper browser pool initialized with ${this.BROWSER_POOL_SIZE} browser(s)`);
     } catch (error) {
       logger.error('Failed to initialize browser pool:', error);
       throw error;
@@ -105,6 +110,10 @@ export class YouTubeScraperService {
   }
 
   private async performSearch(query: string, maxResults: number): Promise<SearchResult[]> {
+    if (!this.scraperEnabled) {
+      logger.warn('performSearch skipped: SCRAPER_ENABLED=false');
+      return [];
+    }
     if (this.browserPool.length === 0) {
       await this.initialize();
     }
@@ -224,6 +233,9 @@ export class YouTubeScraperService {
   }
 
   private async scrapeVideoMetadata(videoId: string): Promise<VideoMetadata> {
+    if (!this.scraperEnabled) {
+      throw new Error('Scraper disabled (SCRAPER_ENABLED=false)');
+    }
     if (!this.browser) {
       await this.initialize();
     }
