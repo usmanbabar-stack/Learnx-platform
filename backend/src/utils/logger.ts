@@ -3,42 +3,43 @@ import path from 'path';
 
 const logDir = 'logs';
 
-// Create logger configuration
+const consoleFormat = winston.format.combine(
+  winston.format.colorize(),
+  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+  winston.format.printf(({ timestamp, level, message, ...meta }) => {
+    const extra = Object.keys(meta).length ? ' ' + JSON.stringify(meta) : '';
+    return `${timestamp} ${level}: ${message}${extra}`;
+  })
+);
+
+// Always include console transport so Render/Docker logs are visible in all envs
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: winston.format.combine(
-    winston.format.timestamp({
-      format: 'YYYY-MM-DD HH:mm:ss'
-    }),
+    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
     winston.format.errors({ stack: true }),
     winston.format.json()
   ),
   defaultMeta: { service: 'learnx-backend' },
   transports: [
-    // Write all logs with level 'error' and below to error.log
+    new winston.transports.Console({ format: consoleFormat }),
     new winston.transports.File({
       filename: path.join(logDir, 'error.log'),
       level: 'error',
-      maxsize: 5242880, // 5MB
+      maxsize: 5242880,
       maxFiles: 5,
     }),
-    // Write all logs with level 'info' and below to combined.log
     new winston.transports.File({
       filename: path.join(logDir, 'combined.log'),
-      maxsize: 5242880, // 5MB
+      maxsize: 5242880,
       maxFiles: 5,
     }),
   ],
 });
 
-// If we're not in production, log to the console with a simple format
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(new winston.transports.Console({
-    format: winston.format.combine(
-      winston.format.colorize(),
-      winston.format.simple()
-    )
-  }));
-}
+// Prevent unhandled 'error' events on file transports from crashing the process
+logger.on('error', (err) => {
+  console.error('[logger] transport error (non-fatal):', err.message);
+});
 
 export { logger };

@@ -220,12 +220,17 @@ const startServer = async () => {
     }
 
     // Start HTTP server
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       logger.info(`🚀 Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
       logger.info(`📊 Health check available at http://localhost:${PORT}/api/health`);
       if (!postgresConnected || !qdrantConnected) {
         logger.info(`🔧 Note: Some features may be limited without database connections`);
       }
+    });
+
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      logger.error(`❌ Failed to bind port ${PORT}:`, { code: err.code, message: err.message });
+      process.exit(1);
     });
   } catch (error) {
     logger.error('Failed to start server:', error);

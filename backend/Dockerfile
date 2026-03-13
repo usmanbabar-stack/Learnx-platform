@@ -48,6 +48,8 @@ RUN npm ci
 RUN npm install -g typescript
 COPY . .
 RUN npm run build
+# Copy SQL migration files into dist (tsc only processes .ts files)
+RUN mkdir -p dist/db/migrations && cp src/db/migrations/*.sql dist/db/migrations/
 
 # Production stage
 FROM base AS production
@@ -62,8 +64,11 @@ COPY --from=build /usr/src/app/package.json ./package.json
 RUN mkdir -p logs && chown -R nodejs:nodejs logs
 USER nodejs
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+# Give the server up to 2 min to connect to all external services before
+# the first health-check fires (Qdrant/Neon cold starts can take ~60 s)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3001/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
 
 EXPOSE 3001
-CMD ["node", "dist/server.js"]
+# Cap Node heap to 384 MB to stay within Render's 512 MB free-tier RAM
+CMD ["node", "--max-old-space-size=384", "dist/server.js"]
