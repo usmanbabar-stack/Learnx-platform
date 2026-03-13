@@ -18,8 +18,10 @@ RUN apk add --no-cache \
 # Install yt-dlp for video transcript extraction
 RUN pip3 install --no-cache-dir yt-dlp --break-system-packages
 
-# Tell Puppeteer to skip installing Chromium. We'll be using the installed package.
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+# Skip Puppeteer's Chromium download (v21+ uses PUPPETEER_SKIP_DOWNLOAD;
+# keep the old name too for any bundled legacy scripts)
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Create app directory

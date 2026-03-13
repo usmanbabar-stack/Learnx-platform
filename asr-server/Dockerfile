@@ -18,13 +18,15 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code and pre-built models from repo
 COPY server.py .
-
-# Keep models directory available; models can be mounted or downloaded later.
-RUN mkdir -p /app/models
+COPY models/ /app/models/
 
 EXPOSE 8000
+
+ENV PORT=8000
+ENV ASR_PORT=8000
+ENV PYTHONUNBUFFERED=1
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1

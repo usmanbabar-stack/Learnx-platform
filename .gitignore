@@ -21,7 +21,6 @@ yarn-error.log*
 .env.*
 env.example
 backend/env.example
-asr-server/requirements.txt
 __pycache__/
 
 # vercel
