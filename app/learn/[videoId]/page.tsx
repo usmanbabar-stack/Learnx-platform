@@ -382,7 +382,7 @@ export default function VideoLearningPage({ params }: { params: { videoId: strin
   
   // 📊 USER PROGRESS: Save on pause/leave
   useEffect(() => {
-    const BACKEND_URL = 'http://localhost:3001';
+    const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:3001';
     
     const saveProgressOnLeave = () => {
       // 🛡️ Only save if user is still logged in
