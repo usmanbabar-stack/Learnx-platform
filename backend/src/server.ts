@@ -178,15 +178,23 @@ process.on('SIGINT', async () => {
 
 // Start server
 const startServer = async () => {
+  // Bind to port FIRST so Render detects it immediately (before DB connections)
+  const server = app.listen(PORT, () => {
+    logger.info(`🚀 Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+    logger.info(`📊 Health check available at http://localhost:${PORT}/api/health`);
+  });
+
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    logger.error(`❌ Failed to bind port ${PORT}:`, { code: err.code, message: err.message });
+    process.exit(1);
+  });
+
+  // Connect to all services after port is open (non-blocking startup)
   try {
-    // Try to connect to PostgreSQL
-    let postgresConnected = false;
+    // PostgreSQL
     try {
       await connectPostgres();
-      postgresConnected = true;
       logger.info('✅ PostgreSQL connected successfully');
-      
-      // Run migrations
       try {
         const { runMigrations } = await import('./db/migrate');
         await runMigrations();
@@ -195,46 +203,29 @@ const startServer = async () => {
       }
     } catch (dbError) {
       logger.error('❌ PostgreSQL connection failed:', dbError);
-      logger.warn('⚠️ Server will start but database features will be unavailable');
-      logger.info('💡 To fix: Check POSTGRES_URL or DATABASE_URL in .env or start PostgreSQL locally');
+      logger.warn('⚠️ Database features will be unavailable');
     }
 
-    // Try to connect to Qdrant
-    let qdrantConnected = false;
+    // Qdrant
     try {
       await connectQdrant();
-      qdrantConnected = true;
       logger.info('✅ Qdrant connected successfully');
     } catch (qdrantError) {
       logger.error('❌ Qdrant connection failed:', qdrantError);
-      logger.warn('⚠️ Vector search will fall back to in-memory embeddings');
-      logger.info('💡 To fix: Check QDRANT_URL in .env or start Qdrant locally (docker run -p 6333:6333 qdrant/qdrant)');
+      logger.warn('⚠️ Vector search unavailable');
     }
 
-    // Try to connect to Redis (non-blocking for development)
+    // Redis
     try {
       await connectRedis();
       logger.info('✅ Redis connected successfully');
     } catch (redisError) {
-      logger.warn('⚠️ Redis connection failed, continuing without Redis:', redisError);
+      logger.warn('⚠️ Redis connection failed, continuing without cache:', redisError);
     }
 
-    // Start HTTP server
-    const server = app.listen(PORT, () => {
-      logger.info(`🚀 Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
-      logger.info(`📊 Health check available at http://localhost:${PORT}/api/health`);
-      if (!postgresConnected || !qdrantConnected) {
-        logger.info(`🔧 Note: Some features may be limited without database connections`);
-      }
-    });
-
-    server.on('error', (err: NodeJS.ErrnoException) => {
-      logger.error(`❌ Failed to bind port ${PORT}:`, { code: err.code, message: err.message });
-      process.exit(1);
-    });
+    logger.info('✅ All service connections attempted');
   } catch (error) {
-    logger.error('Failed to start server:', error);
-    process.exit(1);
+    logger.error('Unexpected error during service connections:', error);
   }
 };
 
