@@ -216,7 +216,7 @@ export class TranscriptOrchestrationService {
 
     // 1) ⚡ PRIMARY: Innertube (youtubei.js) - FASTEST & MOST RELIABLE (2-5 seconds)
     try {
-      this.readinessStatus.set(videoId, { ready: false, message: 'Fetching captions...' });
+      this.readinessStatus.set(videoId, { ready: false, message: 'Fetching captions (Innertube)...' });
       const fastStart = Date.now();
       const innertubeSegments = await fetchTranscriptViaInnertube(videoId);
       const fastTime = Date.now() - fastStart;
@@ -225,43 +225,71 @@ export class TranscriptOrchestrationService {
         segments = innertubeSegments as any;
         source = 'watch-page';
         confidence = 'high';
-        logger.info(`⚡ Fast captions: ${innertubeSegments.length} segments (${fastTime}ms)`);
+        logger.info(`⚡ Innertube: ${innertubeSegments.length} segments (${fastTime}ms) for ${videoId}`);
+      } else {
+        logger.warn(`⚠️ Innertube returned 0 segments for ${videoId} (${fastTime}ms)`);
       }
-    } catch (error) {
-      // Silent fallback to yt-dlp
+    } catch (error: any) {
+      logger.error(`❌ Innertube failed for ${videoId}: ${error?.message || error}`);
     }
 
-    // 2) FALLBACK: yt-dlp (60-90 seconds but most reliable)
+    // 2) FALLBACK A: Watch-page scrape (lightweight HTTP, no binary deps)
     if (segments.length === 0) {
       try {
-        this.readinessStatus.set(videoId, { ready: false, message: 'Extracting captions...' });
+        this.readinessStatus.set(videoId, { ready: false, message: 'Fetching captions (watch-page)...' });
+        const wpStart = Date.now();
+        const wpSegments = await fetchTranscriptViaWatchPage(videoId);
+        const wpTime = Date.now() - wpStart;
+        if (wpSegments.length > 0) {
+          segments = wpSegments as any;
+          source = 'watch-page';
+          confidence = 'high';
+          logger.info(`✅ Watch-page: ${wpSegments.length} segments (${wpTime}ms) for ${videoId}`);
+        } else {
+          logger.warn(`⚠️ Watch-page returned 0 segments for ${videoId} (${wpTime}ms)`);
+        }
+      } catch (error: any) {
+        logger.error(`❌ Watch-page failed for ${videoId}: ${error?.message || error}`);
+      }
+    }
+
+    // 3) FALLBACK B: yt-dlp (60-90 seconds but most reliable for auto-subs)
+    if (segments.length === 0) {
+      try {
+        this.readinessStatus.set(videoId, { ready: false, message: 'Extracting captions (yt-dlp)...' });
         const ytdlpStart = Date.now();
         segments = await fetchTranscriptWithYtDlp(videoId) as any;
         const ytdlpTime = Date.now() - ytdlpStart;
         if (segments.length > 0) {
           source = 'yt-dlp';
           confidence = 'high';
-          logger.info(`✅ yt-dlp: ${segments.length} segments (${(ytdlpTime/1000).toFixed(1)}s)`);
+          logger.info(`✅ yt-dlp: ${segments.length} segments (${(ytdlpTime/1000).toFixed(1)}s) for ${videoId}`);
+        } else {
+          logger.warn(`⚠️ yt-dlp returned 0 segments for ${videoId} (${(ytdlpTime/1000).toFixed(1)}s)`);
         }
-      } catch (error) {
-        logger.error(`❌ yt-dlp failed: ${videoId}`);
+      } catch (error: any) {
+        logger.error(`❌ yt-dlp failed for ${videoId}: ${error?.message || error}`);
       }
     }
 
-    // 3) Optional: ASR fallback (Whisper) - Only if explicitly enabled
+    // 4) FALLBACK C: ASR (Vosk/Whisper) - Only if explicitly enabled
     const asrFallbackEnabled = String(process.env.ENABLE_ASR_FALLBACK || 'false').toLowerCase() === 'true';
     if (segments.length === 0 && asrFallbackEnabled) {
       try {
-        this.readinessStatus.set(videoId, { ready: false, message: 'Audio transcription...' });
+        this.readinessStatus.set(videoId, { ready: false, message: 'Audio transcription (ASR)...' });
+        const asrStart = Date.now();
         const asrSegs = await transcribeFullAudioWithWhisper(videoId) as any;
+        const asrTime = Date.now() - asrStart;
         if (asrSegs.length > 0) {
           segments = asrSegs;
           source = 'whisper';
           confidence = 'medium';
-          logger.info(`✅ ASR: ${asrSegs.length} segments`);
+          logger.info(`✅ ASR: ${asrSegs.length} segments (${(asrTime/1000).toFixed(1)}s) for ${videoId}`);
+        } else {
+          logger.warn(`⚠️ ASR returned 0 segments for ${videoId} (${(asrTime/1000).toFixed(1)}s)`);
         }
-      } catch (asrError) {
-        logger.error(`❌ ASR failed: ${videoId}`);
+      } catch (asrError: any) {
+        logger.error(`❌ ASR failed for ${videoId}: ${asrError?.message || asrError}`);
       }
     }
 

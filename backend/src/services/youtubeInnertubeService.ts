@@ -1,5 +1,6 @@
 import { Innertube, UniversalCache } from 'youtubei.js';
 import { logger } from '../utils/logger';
+import axios from 'axios';
 
 export interface InnertubeTranscriptSegment {
   text: string;
@@ -10,372 +11,301 @@ export interface InnertubeTranscriptSegment {
 let innertubeClient: Innertube | null = null;
 let clientInitPromise: Promise<Innertube> | null = null;
 
-// Suppress youtubei.js parser warnings for unknown YouTube API classes
-// These are non-fatal - the library handles them by JIT-generating classes
-function suppressParserWarnings(): void {
-  try {
-    // Override the parser's error handler to suppress non-fatal warnings
-    const originalConsoleWarn = console.warn;
-    const originalConsoleError = console.error;
-    
-    // Filter out youtubei.js parser warnings
-    const filterYoutubeJsWarnings = (method: typeof console.warn) => (...args: any[]) => {
-      const message = args.join(' ');
-      // Suppress known non-fatal parser warnings
-      if (message.includes('[YOUTUBEJS][Parser]') || 
-          message.includes('not found!') ||
-          message.includes('Type mismatch') ||
-          message.includes('CourseProgressView') ||
-          message.includes('Introspected and JIT generated')) {
-        // Log at debug level instead of polluting console
-        logger.debug(`Suppressed youtubei.js warning: ${message.slice(0, 200)}`);
-        return;
-      }
-      method.apply(console, args);
-    };
-    
-    console.warn = filterYoutubeJsWarnings(originalConsoleWarn);
-    console.error = filterYoutubeJsWarnings(originalConsoleError);
-  } catch (e) {
-    // Ignore if we can't suppress warnings
-  }
-}
+// Priority order for languages (English first, then Hindi/Urdu, then anything)
+const LANGUAGE_PRIORITY = ['en', 'en-US', 'en-GB', 'en-IN', 'hi', 'hi-IN', 'ur'];
 
-// Initialize warning suppression
-suppressParserWarnings();
+// Suppress noisy youtubei.js parser warnings (non-fatal)
+(function suppressParserWarnings() {
+  const origWarn = console.warn;
+  const origErr = console.error;
+  const filter = (method: typeof console.warn) => (...args: any[]) => {
+    const msg = args.join(' ');
+    if (msg.includes('[YOUTUBEJS]') || msg.includes('ParsingError') || msg.includes('Type mismatch'))
+      return;
+    method.apply(console, args);
+  };
+  console.warn = filter(origWarn);
+  console.error = filter(origErr);
+})();
 
-// Initialize or get cached client with retry logic
 async function getClient(): Promise<Innertube> {
-  if (innertubeClient) {
-    return innertubeClient;
-  }
-  
-  if (clientInitPromise) {
-    return clientInitPromise;
-  }
-  
+  if (innertubeClient) return innertubeClient;
+  if (clientInitPromise) return clientInitPromise;
+
   clientInitPromise = (async () => {
     const maxRetries = 3;
     let lastError: Error | null = null;
-    
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const client = await Innertube.create({
           lang: 'en',
           location: 'US',
-          retrieve_player: false,
-          // Enable caching to improve performance
+          retrieve_player: true,
           cache: new UniversalCache(false),
-          // Generate session data for better compatibility
           generate_session_locally: true,
         });
-        
-        logger.info(`Innertube client initialized successfully (attempt ${attempt})`);
+        logger.info(`Innertube client initialized (attempt ${attempt})`);
         return client;
       } catch (error: any) {
         lastError = error;
-        logger.warn(`Innertube client init failed (attempt ${attempt}/${maxRetries}): ${error?.message}`);
-        
-        if (attempt < maxRetries) {
-          // Wait before retry with exponential backoff
-          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        }
+        logger.warn(`Innertube init failed (attempt ${attempt}/${maxRetries}): ${error?.message}`);
+        if (attempt < maxRetries) await new Promise(r => setTimeout(r, 1000 * attempt));
       }
     }
-    
     throw lastError || new Error('Failed to initialize Innertube client');
   })();
-  
+
   try {
     innertubeClient = await clientInitPromise;
   } finally {
     clientInitPromise = null;
   }
-  
   return innertubeClient;
 }
 
-// Reset client (useful if client becomes stale)
 export function resetInnertubeClient(): void {
   innertubeClient = null;
   clientInitPromise = null;
-  logger.info('Innertube client reset');
 }
 
-// Priority order for languages (English first, then Hindi, then others)
-const LANGUAGE_PRIORITY = ['en', 'en-US', 'en-GB', 'en-IN', 'hi', 'hi-IN', 'ur'];
+/**
+ * Parse YouTube timedtext XML into segments.
+ * Format: <text start="1.23" dur="4.56">caption text</text>
+ */
+function parseTimedTextXml(xml: string): InnertubeTranscriptSegment[] {
+  const segments: InnertubeTranscriptSegment[] = [];
+  const pattern = /<text\s+start="([^"]+)"(?:\s+dur="([^"]+)")?[^>]*>([^<]*)<\/text>/g;
+  let match;
 
-// Safe wrapper to handle parser errors gracefully
-async function safeGetInfo(client: Innertube, videoId: string): Promise<any> {
-  try {
-    // Temporarily suppress stderr for this operation
-    const info = await client.getInfo(videoId);
-    return info;
-  } catch (error: any) {
-    // Check if it's a parser error (non-fatal for our use case)
-    if (error?.message?.includes('not found') || 
-        error?.message?.includes('Type mismatch') ||
-        error?.info) {
-      // Parser warnings are non-fatal, the info object may still be usable
-      logger.debug(`Parser warning during getInfo for ${videoId}: ${error?.message}`);
-      throw error; // Re-throw to be handled by retry logic
+  while ((match = pattern.exec(xml)) !== null) {
+    const start = parseFloat(match[1]) || 0;
+    const duration = parseFloat(match[2]) || 1;
+    let text = match[3] || '';
+
+    text = text
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'")
+      .replace(/\n/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (text) {
+      segments.push({ text, start: Math.floor(start), duration: Math.max(1, Math.floor(duration)) });
     }
-    throw error;
   }
+  return segments;
 }
 
-// Safe wrapper to get transcript with fallback methods
-async function safeGetTranscript(info: any, videoId: string): Promise<any> {
-  try {
-    const transcriptInfo = await info.getTranscript();
-    return transcriptInfo;
-  } catch (error: any) {
-    // Some video types (shorts, live streams) may not have transcripts
-    if (error?.message?.includes('Transcript') || 
-        error?.message?.includes('not available')) {
-      logger.info(`Transcript not available for ${videoId}: ${error?.message}`);
-      return null;
+/**
+ * Parse JSON3 caption format (events array with segs)
+ */
+function parseJson3(data: any): InnertubeTranscriptSegment[] {
+  const events: any[] = data?.events || [];
+  const segments: InnertubeTranscriptSegment[] = [];
+
+  for (const ev of events) {
+    const startMs = ev?.tStartMs;
+    const durMs = ev?.dDurationMs || 0;
+    const parts = ev?.segs || [];
+    if (typeof startMs !== 'number') continue;
+
+    let text = '';
+    if (Array.isArray(parts)) {
+      text = parts.map((p: any) => p?.utf8 || p?.text || '').join('').trim();
     }
-    throw error;
+    text = text.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+
+    segments.push({
+      text,
+      start: Math.max(0, Math.floor(startMs / 1000)),
+      duration: Math.max(1, Math.floor((durMs || 1000) / 1000)),
+    });
   }
+  return segments;
 }
 
+/**
+ * Strategy 1: Use Innertube getBasicInfo → caption_tracks → fetch timedtext XML
+ * This bypasses the blocked /get_transcript endpoint.
+ */
+async function fetchViaCaptionTracks(client: Innertube, videoId: string): Promise<InnertubeTranscriptSegment[]> {
+  const info = await client.getInfo(videoId);
+  const captionTracks: any[] = (info as any).captions?.caption_tracks || [];
+
+  if (captionTracks.length === 0) {
+    logger.info(`No caption tracks for ${videoId}`);
+    return [];
+  }
+
+  const langCodes = captionTracks.map((t: any) => `${t.language_code}${t.kind === 'asr' ? '(auto)' : ''}`).join(', ');
+  logger.info(`Caption tracks for ${videoId}: ${langCodes}`);
+
+  // Prefer manual captions over auto-generated, prefer English
+  let chosen: any = null;
+  for (const lang of LANGUAGE_PRIORITY) {
+    chosen = captionTracks.find((t: any) => t.language_code === lang && t.kind !== 'asr');
+    if (chosen) break;
+  }
+  if (!chosen) {
+    for (const lang of LANGUAGE_PRIORITY) {
+      chosen = captionTracks.find((t: any) => t.language_code === lang);
+      if (chosen) break;
+    }
+  }
+  if (!chosen) chosen = captionTracks[0];
+
+  if (!chosen?.base_url) {
+    logger.warn(`No base_url on chosen caption track for ${videoId}`);
+    return [];
+  }
+
+  logger.info(`Fetching caption track: lang=${chosen.language_code}, kind=${chosen.kind || 'manual'}`);
+
+  // Try JSON3 format first (richer), then raw XML
+  const urls = [
+    `${chosen.base_url}&fmt=json3`,
+    chosen.base_url,
+  ];
+
+  for (const url of urls) {
+    try {
+      const { data } = await axios.get(url, {
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        responseType: 'text',
+      });
+
+      if (!data) continue;
+
+      // Try JSON3 parse
+      if (typeof data === 'string' && data.trim().startsWith('{')) {
+        try {
+          const json = JSON.parse(data);
+          const segs = parseJson3(json);
+          if (segs.length > 0) return segs;
+        } catch {}
+      }
+
+      // Try XML parse
+      if (typeof data === 'string' && (data.includes('<text ') || data.includes('<?xml'))) {
+        const segs = parseTimedTextXml(data);
+        if (segs.length > 0) return segs;
+      }
+    } catch (e: any) {
+      logger.debug(`Caption URL failed for ${videoId}: ${e?.message}`);
+    }
+  }
+
+  return [];
+}
+
+/**
+ * Strategy 2 (legacy): Use getTranscript() — may fail with 400 on newer YouTube API
+ */
+async function fetchViaGetTranscript(client: Innertube, videoId: string): Promise<InnertubeTranscriptSegment[]> {
+  const info = await client.getInfo(videoId);
+  if (!info) return [];
+
+  const transcriptInfo = await info.getTranscript();
+  if (!transcriptInfo) return [];
+
+  const transcript = transcriptInfo.transcript;
+  if (!transcript) return [];
+
+  // Try multiple extraction paths
+  const body = transcript?.content?.body as any;
+  const rawSegments =
+    body?.initial_segments ||
+    body?.cues ||
+    (Array.isArray((transcript as any)?.segments) ? (transcript as any).segments : null);
+
+  if (!rawSegments) return [];
+
+  const segments: InnertubeTranscriptSegment[] = [];
+  for (const seg of rawSegments) {
+    try {
+      const startMs = Number(seg.start_ms || seg.startMs || (seg.start ? seg.start * 1000 : 0));
+      const endMs = Number(seg.end_ms || seg.endMs || (seg.end ? seg.end * 1000 : startMs + 1000));
+      let text = '';
+      if (seg.snippet?.text) text = seg.snippet.text;
+      else if (seg.snippet?.runs) text = seg.snippet.runs.map((r: any) => r.text || '').join('');
+      else if (seg.text) text = seg.text;
+      text = text.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+      if (text) {
+        segments.push({ text, start: Math.floor(startMs / 1000), duration: Math.max(1, Math.floor((endMs - startMs) / 1000)) });
+      }
+    } catch {}
+  }
+  return segments;
+}
+
+/**
+ * Main entry point. Tries caption-track approach first (reliable), then legacy getTranscript.
+ */
 export async function fetchTranscriptViaInnertube(
   videoId: string,
   preferredLangs: string[] = LANGUAGE_PRIORITY
 ): Promise<InnertubeTranscriptSegment[]> {
   const startTime = Date.now();
-  const maxRetries = 3;
-  let lastError: Error | null = null;
-  
+  const maxRetries = 2;
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      // Reset client on retry attempts for fresh session
       if (attempt > 1) {
         resetInnertubeClient();
-        await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+        await new Promise(r => setTimeout(r, 500 * attempt));
       }
-      
+
       const client = await getClient();
-      
-      // Get video info with error handling for parser warnings
-      let info: any;
+
+      // Strategy 1: caption_tracks + timedtext (works even when /get_transcript is blocked)
       try {
-        info = await client.getInfo(videoId);
-      } catch (infoError: any) {
-        const errorMsg = infoError?.message || String(infoError);
-        // If client seems stale or 400 error, reset and retry
-        if (attempt < maxRetries && (
-            errorMsg.includes('session') || 
-            errorMsg.includes('token') ||
-            errorMsg.includes('400') ||
-            errorMsg.includes('403'))) {
-          logger.info(`Resetting Innertube client (attempt ${attempt}): ${errorMsg}`);
-          continue;
+        const segs = await fetchViaCaptionTracks(client, videoId);
+        if (segs.length > 0) {
+          logger.info(`✅ Innertube (caption tracks) ${segs.length} segs in ${Date.now() - startTime}ms for ${videoId}`);
+          return segs;
         }
-        throw infoError;
-      }
-      
-      if (!info) {
-        logger.warn(`No video info returned for ${videoId}`);
-        return [];
-      }
-      
-      // Check if video has captions before requesting transcript
-      const hasCaptions = info.captions || info.has_captions;
-      if (hasCaptions === false) {
-        logger.info(`Video ${videoId} has no captions available`);
-        return [];
+      } catch (e: any) {
+        logger.warn(`Innertube caption-tracks failed for ${videoId}: ${e?.message}`);
       }
 
-      // Get transcript info - this contains available languages
-      let transcriptInfo: any;
+      // Strategy 2: legacy getTranscript (may 400, but try anyway)
       try {
-        transcriptInfo = await info.getTranscript();
-      } catch (transcriptError: any) {
-        // Handle videos without transcripts gracefully
-        const errorMsg = transcriptError?.message || String(transcriptError);
-        
-        // 400 errors usually mean no captions available for this video
-        if (errorMsg.includes('400') || errorMsg.includes('status code 400')) {
-          logger.info(`Video ${videoId} has no captions (400 response)`);
-          return [];
+        const segs = await fetchViaGetTranscript(client, videoId);
+        if (segs.length > 0) {
+          logger.info(`✅ Innertube (getTranscript) ${segs.length} segs in ${Date.now() - startTime}ms for ${videoId}`);
+          return segs;
         }
-        
-        if (errorMsg.includes('Transcript') || 
-            errorMsg.includes('not available') ||
-            errorMsg.includes('disabled')) {
-          logger.info(`No transcript available via Innertube for ${videoId}: ${errorMsg}`);
-          return [];
-        }
-        
-        // For other errors, retry with fresh client
-        if (attempt < maxRetries) {
-          logger.warn(`Transcript fetch failed (attempt ${attempt}), retrying: ${errorMsg}`);
+      } catch (e: any) {
+        const msg = e?.message || '';
+        if (msg.includes('400') || msg.includes('403')) {
+          logger.info(`Innertube getTranscript blocked (${msg.slice(0, 80)}) for ${videoId}`);
+        } else if (attempt < maxRetries) {
+          logger.warn(`Innertube getTranscript error, retrying: ${msg.slice(0, 120)}`);
           continue;
         }
-        throw transcriptError;
       }
-      
-      if (!transcriptInfo) {
-        logger.info(`No transcript available via Innertube for ${videoId}`);
-        return [];
-      }
-      
-      // Log available languages
-      const languages = transcriptInfo.languages || [];
-      if (languages.length > 0) {
-        const availableLangs = languages.map((l: any) => (l as any).language_code || (l as any).id || String(l)).join(', ');
-        logger.info(`Available transcript languages for ${videoId}: ${availableLangs}`);
-        
-        // Try to select preferred language (English first)
-        for (const prefLang of preferredLangs) {
-          const match = languages.find((l: any) => {
-            const langCode = (l as any).language_code || (l as any).id || String(l);
-            return langCode.toLowerCase().startsWith(prefLang.toLowerCase());
-          });
-          if (match) {
-            try {
-              const langCode = (match as any).language_code || (match as any).id || String(match);
-              logger.info(`Selecting transcript language: ${langCode}`);
-              await transcriptInfo.selectLanguage(langCode);
-              break;
-            } catch (e) {
-              logger.debug(`Could not select language ${prefLang}: ${e}`);
-            }
-          }
-        }
-      }
-      
-      // Get the transcript content with multiple fallback paths
-      const transcript = transcriptInfo.transcript;
-      let segments: InnertubeTranscriptSegment[] = [];
-      
-      // Try primary path: transcript.content.body.initial_segments
-      if (transcript?.content?.body?.initial_segments) {
-        const selectedLang = (transcript.content?.body as any)?.language_code || 'unknown';
-        logger.info(`Extracting transcript in language: ${selectedLang}`);
-        
-        segments = extractSegmentsFromBody(transcript.content.body.initial_segments);
-      }
-      // Fallback path 1: transcript.content.body.cues
-      else if (transcript?.content?.body?.cues) {
-        logger.info(`Using fallback cues extraction for ${videoId}`);
-        segments = extractSegmentsFromCues(transcript.content.body.cues);
-      }
-      // Fallback path 2: direct segments array
-      else if (Array.isArray(transcript?.segments)) {
-        logger.info(`Using direct segments extraction for ${videoId}`);
-        segments = extractSegmentsFromBody(transcript.segments);
-      }
-      
-      const elapsed = Date.now() - startTime;
-      
-      if (segments.length > 0) {
-        logger.info(`✅ Innertube extracted ${segments.length} segments for ${videoId} in ${elapsed}ms`);
-        return segments;
-      }
-      
-      logger.info(`Innertube returned 0 segments for ${videoId} after ${elapsed}ms`);
+
+      // Both strategies returned 0 segments — no captions on this video
+      logger.info(`Innertube: no captions found for ${videoId} after ${Date.now() - startTime}ms`);
       return [];
-      
+
     } catch (error: any) {
-      lastError = error;
-      const elapsed = Date.now() - startTime;
-      
-      // Check if error is recoverable
-      const errorMsg = error?.message || String(error);
-      const isRecoverable = errorMsg.includes('network') || 
-                           errorMsg.includes('timeout') ||
-                           errorMsg.includes('ECONNRESET') ||
-                           errorMsg.includes('session');
-      
-      if (attempt < maxRetries && isRecoverable) {
-        logger.warn(`Innertube attempt ${attempt} failed for ${videoId}, retrying: ${errorMsg}`);
+      logger.warn(`Innertube attempt ${attempt} failed for ${videoId}: ${error?.message}`);
+      if (attempt < maxRetries) {
         resetInnertubeClient();
-        await new Promise(resolve => setTimeout(resolve, 500 * attempt));
-        continue;
       }
-      
-      logger.warn(`Innertube failed for ${videoId} after ${elapsed}ms: ${errorMsg}`);
     }
   }
-  
+
   return [];
-}
-
-// Extract segments from initial_segments or similar structure
-function extractSegmentsFromBody(rawSegments: any[]): InnertubeTranscriptSegment[] {
-  const segments: InnertubeTranscriptSegment[] = [];
-  
-  for (const segment of rawSegments) {
-    try {
-      // Each segment has start_ms, end_ms, and snippet with text
-      const startMs = segment.start_ms ? Number(segment.start_ms) : 
-                      segment.startMs ? Number(segment.startMs) :
-                      segment.start ? Number(segment.start) * 1000 : 0;
-      const endMs = segment.end_ms ? Number(segment.end_ms) : 
-                    segment.endMs ? Number(segment.endMs) :
-                    segment.end ? Number(segment.end) * 1000 : startMs + 1000;
-      
-      let text = '';
-      if (segment.snippet?.text) {
-        text = segment.snippet.text;
-      } else if (segment.snippet?.runs) {
-        text = segment.snippet.runs.map((r: any) => r.text || '').join('');
-      } else if (segment.text) {
-        text = segment.text;
-      } else if (typeof segment === 'string') {
-        text = segment;
-      }
-      
-      text = text.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
-      
-      if (text) {
-        segments.push({
-          text,
-          start: Math.floor(startMs / 1000),
-          duration: Math.max(1, Math.floor((endMs - startMs) / 1000))
-        });
-      }
-    } catch (e) {
-      // Skip malformed segments
-      logger.debug(`Skipping malformed segment: ${e}`);
-    }
-  }
-  
-  return segments;
-}
-
-// Extract segments from cues format
-function extractSegmentsFromCues(cues: any[]): InnertubeTranscriptSegment[] {
-  const segments: InnertubeTranscriptSegment[] = [];
-  
-  for (const cue of cues) {
-    try {
-      const startMs = cue.start_time_ms ? Number(cue.start_time_ms) : 
-                      cue.startTime ? Number(cue.startTime) * 1000 : 0;
-      const endMs = cue.end_time_ms ? Number(cue.end_time_ms) :
-                    cue.endTime ? Number(cue.endTime) * 1000 : startMs + 1000;
-      
-      let text = cue.text || cue.content || '';
-      if (cue.runs) {
-        text = cue.runs.map((r: any) => r.text || '').join('');
-      }
-      
-      text = text.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
-      
-      if (text) {
-        segments.push({
-          text,
-          start: Math.floor(startMs / 1000),
-          duration: Math.max(1, Math.floor((endMs - startMs) / 1000))
-        });
-      }
-    } catch (e) {
-      logger.debug(`Skipping malformed cue: ${e}`);
-    }
-  }
-  
-  return segments;
 }
