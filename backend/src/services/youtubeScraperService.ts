@@ -244,29 +244,44 @@ export class YouTubeScraperService {
     const suppress = this.suppressYtjsWarnings();
     try {
       const info = await client.getInfo(videoId);
-      const details = (info as any).basic_info || {};
+      const bi = (info as any).basic_info || {};
+      const pi = (info as any).primary_info;
+      const si = (info as any).secondary_info;
 
-      const durationSec = details.duration || 0;
-      const mins = Math.floor(durationSec / 60);
-      const secs = durationSec % 60;
-      const durationStr = `${mins}:${String(secs).padStart(2, '0')}`;
-
-      const title = details.title || '';
+      const title = bi.title
+        || pi?.title?.text || pi?.title?.toString?.()
+        || '';
       if (!title) {
         throw new Error(`Innertube returned empty title for ${videoId}`);
       }
 
+      const channel = bi.author
+        || si?.owner?.author?.name
+        || bi.channel?.name
+        || 'Unknown';
+
+      const description = bi.short_description
+        || si?.description?.text || si?.description?.toString?.()
+        || '';
+
+      const durationSec = bi.duration || 0;
+      const mins = Math.floor(durationSec / 60);
+      const secs = durationSec % 60;
+      const durationStr = durationSec > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : '';
+
+      const publishedText = pi?.published?.text || pi?.relative_date?.text || '';
+
       return {
         videoId,
         title,
-        channel: details.author || details.channel?.name || 'Unknown',
-        description: (details.short_description || '').substring(0, 500),
+        channel,
+        description: description.substring(0, 500),
         duration: durationStr,
-        views: details.view_count != null ? String(details.view_count) : '0',
-        likes: '',
-        uploadDate: '',
-        category: '',
-        thumbnail: details.thumbnail?.[0]?.url || `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+        views: bi.view_count != null ? String(bi.view_count) : '0',
+        likes: bi.like_count != null ? String(bi.like_count) : '',
+        uploadDate: publishedText,
+        category: bi.category || '',
+        thumbnail: bi.thumbnail?.[0]?.url || `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
         url: `https://www.youtube.com/watch?v=${videoId}`,
         scrapedAt: new Date(),
       };
