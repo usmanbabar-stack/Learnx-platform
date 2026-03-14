@@ -157,6 +157,24 @@ app.use('/api/mock-interview', mockInterviewRoutes);
 app.use('/api/teacher', teacherRoutes);
 app.use('/api/past-papers', pastPaperRoutes);
 
+// Temporary diagnostic (remove after debugging)
+app.get('/api/debug/innertube-meta/:videoId', async (req, res) => {
+  try {
+    const { Innertube, UniversalCache } = await import('youtubei.js');
+    const client = await Innertube.create({ lang: 'en', location: 'US', retrieve_player: true, cache: new UniversalCache(false), generate_session_locally: true });
+    const info = await client.getInfo(req.params.videoId);
+    const bi = (info as any).basic_info || {};
+    res.json({
+      title: bi.title, author: bi.author, channel: bi.channel?.name,
+      duration: bi.duration, views: bi.view_count,
+      short_description: (bi.short_description || '').substring(0, 100),
+      thumbnail_count: bi.thumbnail?.length,
+      has_primary_info: !!(info as any).primary_info,
+      keys: Object.keys(bi).slice(0, 20),
+    });
+  } catch (e: any) { res.json({ error: e?.message?.substring(0, 200) }); }
+});
+
 // Error handling middleware
 app.use(notFound);
 app.use(errorHandler);
