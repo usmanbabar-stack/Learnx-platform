@@ -164,15 +164,21 @@ app.get('/api/debug/innertube-meta/:videoId', async (req, res) => {
     const client = await Innertube.create({ lang: 'en', location: 'US', retrieve_player: true, cache: new UniversalCache(false), generate_session_locally: true });
     const info = await client.getInfo(req.params.videoId);
     const bi = (info as any).basic_info || {};
+    const pi = (info as any).primary_info;
+    const si = (info as any).secondary_info;
     res.json({
-      title: bi.title, author: bi.author, channel: bi.channel?.name,
-      duration: bi.duration, views: bi.view_count,
-      short_description: (bi.short_description || '').substring(0, 100),
-      thumbnail_count: bi.thumbnail?.length,
-      has_primary_info: !!(info as any).primary_info,
-      keys: Object.keys(bi).slice(0, 20),
+      basic_info_keys: Object.keys(bi).slice(0, 25),
+      basic_title: bi.title, basic_author: bi.author,
+      basic_channel_name: bi.channel?.name, basic_channel_id: bi.channel?.id,
+      basic_duration: bi.duration, basic_views: bi.view_count,
+      primary_info_title: pi?.title?.text || pi?.title?.toString?.() || null,
+      primary_info_keys: pi ? Object.keys(pi).slice(0, 15) : null,
+      secondary_info_owner: si?.owner?.author?.name || null,
+      secondary_info_keys: si ? Object.keys(si).slice(0, 15) : null,
+      streaming_data_has: !!(info as any).streaming_data,
+      page_type: (info as any).page?.[0]?.type || null,
     });
-  } catch (e: any) { res.json({ error: e?.message?.substring(0, 200) }); }
+  } catch (e: any) { res.json({ error: e?.message?.substring(0, 300) }); }
 });
 
 // Error handling middleware
