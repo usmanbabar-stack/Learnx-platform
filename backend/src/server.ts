@@ -157,59 +157,6 @@ app.use('/api/mock-interview', mockInterviewRoutes);
 app.use('/api/teacher', teacherRoutes);
 app.use('/api/past-papers', pastPaperRoutes);
 
-// Diagnostic: test transcript fetching from the server itself (temporary)
-app.get('/api/debug/transcript/:videoId', async (req, res) => {
-  const { videoId } = req.params;
-  const results: Record<string, any> = { videoId, timestamp: new Date().toISOString() };
-  
-  // Raw Innertube caption track test
-  try {
-    const { Innertube, UniversalCache } = await import('youtubei.js');
-    const axios = (await import('axios')).default;
-    const client = await Innertube.create({ lang: 'en', location: 'US', retrieve_player: true, cache: new UniversalCache(false), generate_session_locally: true });
-    const info = await client.getInfo(videoId);
-    const tracks: any[] = (info as any).captions?.caption_tracks || [];
-    results.captionTracks = tracks.map((t: any) => ({ lang: t.language_code, kind: t.kind, hasUrl: !!t.base_url }));
-    
-    if (tracks.length > 0) {
-      const chosen = tracks.find((t: any) => t.language_code === 'en') || tracks[0];
-      const xmlUrl = chosen.base_url;
-      const jsonUrl = chosen.base_url + '&fmt=json3';
-      
-      // Test XML
-      try {
-        const { data: xmlData } = await axios.get(xmlUrl, { timeout: 10000, responseType: 'text' });
-        const xmlLen = typeof xmlData === 'string' ? xmlData.length : 0;
-        const textCount = (typeof xmlData === 'string' ? xmlData.match(/<text /g) : null)?.length || 0;
-        results.xml = { length: xmlLen, textElements: textCount, preview: typeof xmlData === 'string' ? xmlData.substring(0, 300) : 'not string' };
-      } catch (e: any) { results.xml = { error: e?.message?.substring(0, 150) }; }
-      
-      // Test JSON3
-      try {
-        const { data: jsonData } = await axios.get(jsonUrl, { timeout: 10000, responseType: 'text' });
-        const parsed = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
-        const events = parsed?.events || [];
-        const withSegs = events.filter((e: any) => e.segs);
-        results.json3 = { totalEvents: events.length, withSegs: withSegs.length, firstEvent: withSegs[0] };
-      } catch (e: any) { results.json3 = { error: e?.message?.substring(0, 150) }; }
-    }
-  } catch (e: any) {
-    results.rawInnertube = { error: e?.message?.substring(0, 200) };
-  }
-
-  // Wrapped Innertube service
-  try {
-    const { fetchTranscriptViaInnertube } = await import('./services/youtubeInnertubeService');
-    const start1 = Date.now();
-    const segs = await fetchTranscriptViaInnertube(videoId);
-    results.innertube = { segments: segs.length, ms: Date.now() - start1, first3: segs.slice(0, 3) };
-  } catch (e: any) {
-    results.innertube = { error: e?.message?.substring(0, 200) };
-  }
-
-  res.json(results);
-});
-
 // Error handling middleware
 app.use(notFound);
 app.use(errorHandler);
