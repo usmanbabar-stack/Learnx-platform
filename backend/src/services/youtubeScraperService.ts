@@ -235,13 +235,15 @@ export class YouTubeScraperService {
   }
 
   private async fetchMetadataViaInnertube(videoId: string): Promise<VideoMetadata> {
+    const { Innertube, UniversalCache } = await import('youtubei.js');
+    const client = await Innertube.create({
+      lang: 'en', location: 'US', retrieve_player: true,
+      cache: new UniversalCache(false), generate_session_locally: true,
+    });
+
+    const suppress = this.suppressYtjsWarnings();
     try {
-      const { Innertube, UniversalCache } = await import('youtubei.js');
-      const client = await Innertube.create({
-        lang: 'en', location: 'US', retrieve_player: false,
-        cache: new UniversalCache(false), generate_session_locally: true,
-      });
-      const info = await client.getBasicInfo(videoId);
+      const info = await client.getInfo(videoId);
       const details = (info as any).basic_info || {};
 
       const durationSec = details.duration || 0;
@@ -249,9 +251,14 @@ export class YouTubeScraperService {
       const secs = durationSec % 60;
       const durationStr = `${mins}:${String(secs).padStart(2, '0')}`;
 
+      const title = details.title || '';
+      if (!title) {
+        throw new Error(`Innertube returned empty title for ${videoId}`);
+      }
+
       return {
         videoId,
-        title: details.title || `Video ${videoId}`,
+        title,
         channel: details.author || details.channel?.name || 'Unknown',
         description: (details.short_description || '').substring(0, 500),
         duration: durationStr,
@@ -263,23 +270,19 @@ export class YouTubeScraperService {
         url: `https://www.youtube.com/watch?v=${videoId}`,
         scrapedAt: new Date(),
       };
-    } catch (e: any) {
-      logger.warn(`Innertube metadata fetch failed for ${videoId}: ${e?.message}`);
-      return {
-        videoId,
-        title: `Video ${videoId}`,
-        channel: 'Unknown',
-        description: '',
-        duration: '0:00',
-        views: '0',
-        likes: '',
-        uploadDate: '',
-        category: '',
-        thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
-        url: `https://www.youtube.com/watch?v=${videoId}`,
-        scrapedAt: new Date(),
-      };
+    } finally {
+      suppress();
     }
+  }
+
+  private suppressYtjsWarnings(): () => void {
+    const origWarn = console.warn;
+    console.warn = (...args: any[]) => {
+      const msg = String(args[0] || '');
+      if (msg.includes('[YOUTUBEJS]') && msg.includes('ParsingError')) return;
+      origWarn.apply(console, args);
+    };
+    return () => { console.warn = origWarn; };
   }
 
   private async scrapeVideoMetadata(videoId: string): Promise<VideoMetadata> {
