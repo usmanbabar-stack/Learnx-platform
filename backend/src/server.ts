@@ -157,6 +157,32 @@ app.use('/api/mock-interview', mockInterviewRoutes);
 app.use('/api/teacher', teacherRoutes);
 app.use('/api/past-papers', pastPaperRoutes);
 
+// Diagnostic: test transcript fetching from the server itself (temporary)
+app.get('/api/debug/transcript/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+  const results: Record<string, any> = { videoId, timestamp: new Date().toISOString() };
+  
+  try {
+    const { fetchTranscriptViaInnertube } = await import('./services/youtubeInnertubeService');
+    const start1 = Date.now();
+    const segs = await fetchTranscriptViaInnertube(videoId);
+    results.innertube = { segments: segs.length, ms: Date.now() - start1, sample: segs[0]?.text?.substring(0, 80) };
+  } catch (e: any) {
+    results.innertube = { error: e?.message?.substring(0, 200) };
+  }
+
+  try {
+    const { fetchTranscriptViaWatchPage } = await import('./services/transcriptFallbackService');
+    const start2 = Date.now();
+    const segs = await fetchTranscriptViaWatchPage(videoId);
+    results.watchPage = { segments: segs.length, ms: Date.now() - start2, sample: segs[0]?.text?.substring(0, 80) };
+  } catch (e: any) {
+    results.watchPage = { error: e?.message?.substring(0, 200) };
+  }
+
+  res.json(results);
+});
+
 // Error handling middleware
 app.use(notFound);
 app.use(errorHandler);
