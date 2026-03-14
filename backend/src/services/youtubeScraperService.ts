@@ -206,29 +206,79 @@ export class YouTubeScraperService {
     const cacheKey = `metadata:${videoId}`;
     
     try {
-      // Check cache first (if Redis is available)
       const redisClient = getRedisClient();
       if (redisClient) {
-      const cachedMetadata = await redisClient.get(cacheKey);
-      
-      if (cachedMetadata) {
-        logger.info(`Cache hit for video metadata: ${videoId}`);
-        return JSON.parse(cachedMetadata);
+        const cachedMetadata = await redisClient.get(cacheKey);
+        if (cachedMetadata) {
+          logger.info(`Cache hit for video metadata: ${videoId}`);
+          return JSON.parse(cachedMetadata);
         }
       }
 
-      // Scrape metadata
-      const metadata = await this.scrapeVideoMetadata(videoId);
+      let metadata: VideoMetadata;
+
+      if (this.scraperEnabled) {
+        metadata = await this.scrapeVideoMetadata(videoId);
+      } else {
+        metadata = await this.fetchMetadataViaInnertube(videoId);
+      }
       
-      // Cache metadata (if Redis is available)
       if (redisClient) {
-      await redisClient.setEx(cacheKey, this.CACHE_TTL * 24, JSON.stringify(metadata)); // Cache for 24 hours
+        await redisClient.setEx(cacheKey, this.CACHE_TTL * 24, JSON.stringify(metadata));
       }
       
       return metadata;
     } catch (error) {
       logger.error(`Error getting metadata for video ${videoId}:`, error);
       throw error;
+    }
+  }
+
+  private async fetchMetadataViaInnertube(videoId: string): Promise<VideoMetadata> {
+    try {
+      const { Innertube, UniversalCache } = await import('youtubei.js');
+      const client = await Innertube.create({
+        lang: 'en', location: 'US', retrieve_player: false,
+        cache: new UniversalCache(false), generate_session_locally: true,
+      });
+      const info = await client.getBasicInfo(videoId);
+      const details = (info as any).basic_info || {};
+
+      const durationSec = details.duration || 0;
+      const mins = Math.floor(durationSec / 60);
+      const secs = durationSec % 60;
+      const durationStr = `${mins}:${String(secs).padStart(2, '0')}`;
+
+      return {
+        videoId,
+        title: details.title || `Video ${videoId}`,
+        channel: details.author || details.channel?.name || 'Unknown',
+        description: (details.short_description || '').substring(0, 500),
+        duration: durationStr,
+        views: details.view_count != null ? String(details.view_count) : '0',
+        likes: '',
+        uploadDate: '',
+        category: '',
+        thumbnail: details.thumbnail?.[0]?.url || `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        scrapedAt: new Date(),
+      };
+    } catch (e: any) {
+      logger.warn(`Innertube metadata fetch failed for ${videoId}: ${e?.message}`);
+      return {
+        videoId,
+        title: `Video ${videoId}`,
+        channel: 'Unknown',
+        description: '',
+        duration: '0:00',
+        views: '0',
+        likes: '',
+        uploadDate: '',
+        category: '',
+        thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        scrapedAt: new Date(),
+      };
     }
   }
 
