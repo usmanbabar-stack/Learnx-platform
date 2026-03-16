@@ -17,7 +17,6 @@ import { connectQdrant } from './config/qdrant';
 import { connectRedis } from './config/redis';
 import { logger } from './utils/logger';
 import { errorHandler, notFound, setupGlobalErrorHandlers } from './middleware/errorMiddleware';
-import { initProxyPool, getPoolStatus } from './utils/proxyPool';
 import videoRoutes from './routes/videoRoutes';
 
 // 🛡️ Setup global error handlers FIRST
@@ -141,7 +140,6 @@ app.get('/api/health', async (req, res) => {
       postgres: postgresOk,
       qdrant: qdrantOk,
     },
-    proxyPool: getPoolStatus(),
   });
 });
 
@@ -223,17 +221,6 @@ const startServer = async () => {
       logger.info('✅ Redis connected successfully');
     } catch (redisError) {
       logger.warn('⚠️ Redis connection failed, continuing without cache:', redisError);
-    }
-
-    // Proxy Pool
-    try {
-      await initProxyPool();
-      const status = getPoolStatus();
-      if (status.enabled) {
-        logger.info(`✅ Proxy pool ready: ${status.total} proxies (${status.webshare} webshare, ${status.go2proxy} go2proxy)`);
-      }
-    } catch (proxyError) {
-      logger.warn('⚠️ Proxy pool init failed (continuing without proxies):', proxyError);
     }
 
     logger.info('✅ All service connections attempted');

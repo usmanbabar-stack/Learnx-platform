@@ -62,9 +62,7 @@ services:
         value: all
       - key: SCRAPER_ENABLED
         value: "false"
-      - key: PROXY_ENABLED
-        value: "true"
-      - key: WEBSHARE_PROXIES
+      - key: SUPADATA_API_KEY
         sync: false
 
   - type: web

@@ -3,7 +3,6 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { logger } from '../utils/logger';
-import { getYtdlpProxyArgs, getRandomFingerprint } from '../utils/proxyPool';
 
 export interface TranscriptSegment {
   text: string;
@@ -95,7 +94,6 @@ export async function fetchTranscriptWithYtDlp(videoId: string, retryCount: numb
     // regardless of language.
     const subLangs = process.env.YTDLP_SUB_LANGS || 'all';
 
-    const fp = getRandomFingerprint();
     await ytDlp.execPromise([
       url,
       '--skip-download',
@@ -103,14 +101,13 @@ export async function fetchTranscriptWithYtDlp(videoId: string, retryCount: numb
       '--write-auto-subs',
       '--sub-format', 'vtt',
       '--sub-langs', subLangs,
-      '--user-agent', fp.userAgent,
+      '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       '--sleep-requests', '0.5',
       '--retries', '2',
       '--fragment-retries', '2',
       '--no-warnings',
       '--no-check-certificate',
       '--ignore-errors',
-      ...getYtdlpProxyArgs(),
       '-o', path.join(tmpDir, `${videoId}.%(ext)s`),
     ]);
 

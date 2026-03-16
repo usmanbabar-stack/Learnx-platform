@@ -1,6 +1,5 @@
 import axios from 'axios';
 import { logger } from '../utils/logger';
-import { getAxiosProxyConfig, getRandomFingerprint, reportProxySuccess, reportProxyFailure } from '../utils/proxyPool';
 
 export interface FallbackTranscriptSegment {
   text: string;
@@ -36,14 +35,17 @@ function extractPlayerResponse(html: string): any | null {
 
 export async function fetchTranscriptViaWatchPage(videoId: string, preferredLangs: string[] = ['en', 'en-US', 'en-GB', 'en-IN', 'hi', 'hi-IN']): Promise<FallbackTranscriptSegment[]> {
   const startTime = Date.now();
-  const proxyCfg = getAxiosProxyConfig();
   try {
     const url = `https://www.youtube.com/watch?v=${videoId}`;
-    const fp = getRandomFingerprint();
     const { data: html } = await axios.get(url, {
       timeout: 8000,
-      headers: fp.headers,
-      ...(proxyCfg.httpAgent ? { httpAgent: proxyCfg.httpAgent, httpsAgent: proxyCfg.httpsAgent } : {}),
+      headers: {
+        'Accept-Language': 'en-US,en;q=0.9',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      }
     });
 
     const pr = extractPlayerResponse(html);
@@ -86,16 +88,13 @@ export async function fetchTranscriptViaWatchPage(videoId: string, preferredLang
     for (const urlCandidate of candidates) {
       try {
         logger.info(`Trying caption URL: ${urlCandidate.substring(0, 100)}...`);
-        const capFp = getRandomFingerprint();
-        const capProxy = getAxiosProxyConfig();
         const { data, status } = await axios.get(urlCandidate, { 
           timeout: 8000,
           responseType: 'text',
           headers: { 
-            'Accept-Language': capFp.acceptLanguage,
-            'User-Agent': capFp.userAgent,
-          },
-          ...(capProxy.httpAgent ? { httpAgent: capProxy.httpAgent, httpsAgent: capProxy.httpsAgent } : {}),
+            'Accept-Language': 'en-US,en;q=0.9',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+          }
         });
         
         const dataLen = typeof data === 'string' ? data.length : JSON.stringify(data).length;
@@ -167,7 +166,6 @@ export async function fetchTranscriptViaWatchPage(videoId: string, preferredLang
           }
           
           if (segments.length > 0) {
-            reportProxySuccess(proxyCfg.__proxyId);
             const elapsed = Date.now() - startTime;
             logger.info(`✅ Watch-page extracted ${segments.length} JSON segments for ${videoId} in ${elapsed}ms`);
             return segments;
@@ -188,12 +186,10 @@ export async function fetchTranscriptViaWatchPage(videoId: string, preferredLang
       }
     }
 
-    reportProxyFailure(proxyCfg.__proxyId);
     const elapsed = Date.now() - startTime;
     logger.warn(`Watch-page: All caption formats failed for ${videoId} after ${elapsed}ms`);
     return [];
   } catch (e: any) {
-    reportProxyFailure(proxyCfg.__proxyId);
     const elapsed = Date.now() - startTime;
     logger.warn(`Watch-page failed for ${videoId} after ${elapsed}ms: ${e?.message || e}`);
     return [];

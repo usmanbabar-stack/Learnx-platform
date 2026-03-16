@@ -4,6 +4,7 @@ import { fetchTranscriptViaWatchPage } from './transcriptFallbackService';
 import { fetchTranscriptViaInnertube } from './youtubeInnertubeService';
 import { fetchTranscriptWithYtDlp } from './ytdlpTranscriptService';
 import { transcribeFullAudioWithWhisper } from './audioTranscriptService';
+import { fetchTranscriptViaSupadata } from './supadataTranscriptService';
 import { videoRepository } from '../repositories/videoRepository';
 import { qdrantService } from './qdrantService';
 import { chunkTranscript } from './transcriptRetrievalService';
@@ -17,7 +18,7 @@ export interface TranscriptSegment {
 
 export interface TranscriptQuality {
   segments: TranscriptSegment[];
-  source: 'db' | 'watch-page' | 'yt-dlp' | 'whisper' | 'qdrant-only';
+  source: 'db' | 'supadata' | 'watch-page' | 'yt-dlp' | 'whisper' | 'qdrant-only';
   confidence: 'high' | 'medium' | 'low';
   processingTime: number;
   wordCount: number;
@@ -214,23 +215,43 @@ export class TranscriptOrchestrationService {
     let source: TranscriptQuality['source'] = 'yt-dlp';
     let confidence: TranscriptQuality['confidence'] = 'high';
 
-    // 1) ⚡ PRIMARY: Innertube (youtubei.js) - FASTEST & MOST RELIABLE (2-5 seconds)
+    // 0) ⚡ SUPADATA API — fastest & most reliable from cloud (1-3 seconds)
     try {
-      this.readinessStatus.set(videoId, { ready: false, message: 'Fetching captions (Innertube)...' });
-      const fastStart = Date.now();
-      const innertubeSegments = await fetchTranscriptViaInnertube(videoId);
-      const fastTime = Date.now() - fastStart;
-      
-      if (innertubeSegments.length > 0) {
-        segments = innertubeSegments as any;
-        source = 'watch-page';
+      this.readinessStatus.set(videoId, { ready: false, message: 'Fetching captions (Supadata)...' });
+      const sdStart = Date.now();
+      const sdSegments = await fetchTranscriptViaSupadata(videoId);
+      const sdTime = Date.now() - sdStart;
+      if (sdSegments.length > 0) {
+        segments = sdSegments as any;
+        source = 'supadata';
         confidence = 'high';
-        logger.info(`⚡ Innertube: ${innertubeSegments.length} segments (${fastTime}ms) for ${videoId}`);
+        logger.info(`⚡ Supadata: ${sdSegments.length} segments (${sdTime}ms) for ${videoId}`);
       } else {
-        logger.warn(`⚠️ Innertube returned 0 segments for ${videoId} (${fastTime}ms)`);
+        logger.warn(`⚠️ Supadata returned 0 segments for ${videoId} (${sdTime}ms)`);
       }
     } catch (error: any) {
-      logger.error(`❌ Innertube failed for ${videoId}: ${error?.message || error}`);
+      logger.error(`❌ Supadata failed for ${videoId}: ${error?.message || error}`);
+    }
+
+    // 1) FALLBACK A: Innertube (youtubei.js)
+    if (segments.length === 0) {
+      try {
+        this.readinessStatus.set(videoId, { ready: false, message: 'Fetching captions (Innertube)...' });
+        const fastStart = Date.now();
+        const innertubeSegments = await fetchTranscriptViaInnertube(videoId);
+        const fastTime = Date.now() - fastStart;
+        
+        if (innertubeSegments.length > 0) {
+          segments = innertubeSegments as any;
+          source = 'watch-page';
+          confidence = 'high';
+          logger.info(`⚡ Innertube: ${innertubeSegments.length} segments (${fastTime}ms) for ${videoId}`);
+        } else {
+          logger.warn(`⚠️ Innertube returned 0 segments for ${videoId} (${fastTime}ms)`);
+        }
+      } catch (error: any) {
+        logger.error(`❌ Innertube failed for ${videoId}: ${error?.message || error}`);
+      }
     }
 
     // 2) FALLBACK A: Watch-page scrape (lightweight HTTP, no binary deps)
