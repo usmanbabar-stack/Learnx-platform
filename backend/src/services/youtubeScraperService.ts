@@ -547,10 +547,11 @@ export class YouTubeScraperService {
   }, limit: number = 20): Promise<SearchResult[]> {
     const base = `${topic}`.trim();
     
-    // Try fast search with race condition for ultra-speed
+    // Try fast search (HTTP-based, works with or without proxies)
     try {
+      const timeoutMs = this.scraperEnabled ? 3000 : 10000;
       const timeoutPromise = new Promise<SearchResult[]>((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout')), 1500) // 1.5 second max
+        setTimeout(() => reject(new Error('Timeout')), timeoutMs)
       );
       
       const searchPromise = this.fastSearch(base, limit);
@@ -562,10 +563,14 @@ export class YouTubeScraperService {
         return fastResults;
       }
     } catch (error) {
-      logger.warn('Fast search failed or timed out, falling back to browser scraping:', error);
+      logger.warn('Fast search failed or timed out:', error);
     }
     
-    // Fallback to browser scraping
+    // Fallback to browser scraping (only when Puppeteer is available)
+    if (!this.scraperEnabled) {
+      logger.warn('Search returned 0 results — scraper disabled, no browser fallback');
+      return [];
+    }
     const raw = await this.searchVideos(base, this.MAX_RESULTS);
     return raw.slice(0, limit);
   }
@@ -589,8 +594,8 @@ export class YouTubeScraperService {
           'Connection': 'keep-alive',
         },
         ...(searchProxy.httpAgent ? { httpAgent: searchProxy.httpAgent, httpsAgent: searchProxy.httpsAgent } : {}),
-        timeout: 4000,
-        maxRedirects: 0,
+        timeout: 8000,
+        maxRedirects: 3,
         validateStatus: (status) => status < 400
       });
 
