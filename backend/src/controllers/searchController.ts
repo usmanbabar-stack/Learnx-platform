@@ -5,6 +5,7 @@ import { logger } from '../utils/logger';
 import { validationResult } from 'express-validator';
 import { getRedisClient } from '../config/redis';
 import { SearchResult } from '../types/video';
+import { videoRepository } from '../repositories/videoRepository';
 
 // ============================================
 // STRICT EDUCATIONAL FILTER
@@ -199,23 +200,50 @@ export class SearchController {
 
       // Search YouTube directly for fastest results
       const startScrape = Date.now();
-      const youtubeResults = await youtubeScraperService.searchEducationalVideos(query, {
-        duration: duration as any,
-        uploadDate: upload_date as any,
-        sortBy: sort_by as any
-      }, Number(limit));
+      let youtubeResults: SearchResult[] = [];
+      try {
+        youtubeResults = await youtubeScraperService.searchEducationalVideos(query, {
+          duration: duration as any,
+          uploadDate: upload_date as any,
+          sortBy: sort_by as any
+        }, Number(limit));
+      } catch (scrapeErr: any) {
+        logger.warn(`YouTube scraping failed: ${scrapeErr?.message?.slice(0, 120)}`);
+      }
       
       // Apply fast educational filter (removes music, movies, etc.)
       const filteredResults = filterEducationalResults(youtubeResults);
       
       logger.info(`YouTube scraping took ${Date.now() - startScrape}ms, filtered ${youtubeResults.length} -> ${filteredResults.length}`);
 
-      // Decide whether to persist scraped results now or only when user watches
-      const saveOnSearch = (process.env.SAVE_SCRAPED_ON_SEARCH || 'false').toLowerCase() === 'true';
+      // Fallback: if YouTube scraping returned 0, search PostgreSQL
+      let aggregatedResults = filteredResults;
+      let source = 'youtube';
 
-      // Just use the filtered results directly for maximum speed
-      const aggregatedResults = filteredResults;
-      const source = 'youtube';
+      if (aggregatedResults.length === 0) {
+        logger.info(`YouTube returned 0, falling back to PostgreSQL search for: ${query}`);
+        try {
+          const pgResults = await videoRepository.searchVideos(query as string, {}, Number(limit));
+          if (pgResults.length > 0) {
+            aggregatedResults = pgResults.map(v => ({
+              videoId: v.videoId,
+              title: v.metadata?.title || '',
+              channel: v.metadata?.channel || '',
+              description: v.metadata?.description || '',
+              thumbnail: v.metadata?.thumbnail || `https://img.youtube.com/vi/${v.videoId}/maxresdefault.jpg`,
+              duration: v.metadata?.duration || '',
+              views: v.metadata?.views || '0',
+              uploadTime: v.metadata?.uploadDate || '',
+              url: `https://www.youtube.com/watch?v=${v.videoId}`,
+            }));
+            source = 'database';
+            logger.info(`PostgreSQL fallback returned ${aggregatedResults.length} results`);
+          }
+        } catch (dbErr: any) {
+          logger.warn(`PostgreSQL search fallback failed: ${dbErr?.message?.slice(0, 120)}`);
+        }
+      }
+
       const newVideosProcessed = 0;
 
       const results = {
