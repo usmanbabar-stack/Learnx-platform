@@ -1,6 +1,7 @@
 import { Innertube, UniversalCache } from 'youtubei.js';
 import { logger } from '../utils/logger';
 import axios from 'axios';
+import { getProxiedFetch, getAxiosProxyConfig, getRandomFingerprint, reportProxySuccess, reportProxyFailure, getProxyIdFromFetch } from '../utils/proxyPool';
 
 export interface InnertubeTranscriptSegment {
   text: string;
@@ -10,11 +11,10 @@ export interface InnertubeTranscriptSegment {
 
 let innertubeClient: Innertube | null = null;
 let clientInitPromise: Promise<Innertube> | null = null;
+let clientProxyId: string | undefined;
 
-// Priority order for languages (English first, then Hindi/Urdu, then anything)
 const LANGUAGE_PRIORITY = ['en', 'en-US', 'en-GB', 'en-IN', 'hi', 'hi-IN', 'ur'];
 
-// Suppress noisy youtubei.js parser warnings (non-fatal)
 (function suppressParserWarnings() {
   const origWarn = console.warn;
   const origErr = console.error;
@@ -38,18 +38,25 @@ async function getClient(): Promise<Innertube> {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const client = await Innertube.create({
+        const proxiedFetch = getProxiedFetch();
+        const opts: any = {
           lang: 'en',
           location: 'US',
           retrieve_player: true,
           cache: new UniversalCache(false),
           generate_session_locally: true,
-        });
-        logger.info(`Innertube client initialized (attempt ${attempt})`);
+        };
+        if (proxiedFetch) {
+          opts.fetch = proxiedFetch;
+          clientProxyId = getProxyIdFromFetch(proxiedFetch);
+        }
+        const client = await Innertube.create(opts);
+        logger.info(`Innertube client initialized (attempt ${attempt})${proxiedFetch ? ' via proxy' : ''}`);
         return client;
       } catch (error: any) {
         lastError = error;
         logger.warn(`Innertube init failed (attempt ${attempt}/${maxRetries}): ${error?.message}`);
+        reportProxyFailure(clientProxyId);
         if (attempt < maxRetries) await new Promise(r => setTimeout(r, 1000 * attempt));
       }
     }
@@ -67,6 +74,7 @@ async function getClient(): Promise<Innertube> {
 export function resetInnertubeClient(): void {
   innertubeClient = null;
   clientInitPromise = null;
+  clientProxyId = undefined;
 }
 
 /**
@@ -175,12 +183,15 @@ async function fetchViaCaptionTracks(client: Innertube, videoId: string): Promis
 
   for (const url of urls) {
     try {
+      const fp = getRandomFingerprint();
+      const proxyAxios = getAxiosProxyConfig();
       const { data } = await axios.get(url, {
         timeout: 10000,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
+          'User-Agent': fp.userAgent,
+          'Accept-Language': fp.acceptLanguage,
         },
+        ...( proxyAxios.httpAgent ? { httpAgent: proxyAxios.httpAgent, httpsAgent: proxyAxios.httpsAgent } : {}),
         responseType: 'text',
       });
 
@@ -271,10 +282,12 @@ export async function fetchTranscriptViaInnertube(
       try {
         const segs = await fetchViaCaptionTracks(client, videoId);
         if (segs.length > 0) {
+          reportProxySuccess(clientProxyId);
           logger.info(`✅ Innertube (caption tracks) ${segs.length} segs in ${Date.now() - startTime}ms for ${videoId}`);
           return segs;
         }
       } catch (e: any) {
+        reportProxyFailure(clientProxyId);
         logger.warn(`Innertube caption-tracks failed for ${videoId}: ${e?.message}`);
       }
 
@@ -282,6 +295,7 @@ export async function fetchTranscriptViaInnertube(
       try {
         const segs = await fetchViaGetTranscript(client, videoId);
         if (segs.length > 0) {
+          reportProxySuccess(clientProxyId);
           logger.info(`✅ Innertube (getTranscript) ${segs.length} segs in ${Date.now() - startTime}ms for ${videoId}`);
           return segs;
         }

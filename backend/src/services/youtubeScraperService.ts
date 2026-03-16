@@ -5,6 +5,7 @@ import { logger } from '../utils/logger';
 import { YoutubeTranscript } from 'youtube-transcript';
 import { VideoMetadata, SearchResult, TranscriptItem } from '../types/video';
 import { getRedisClient } from '../config/redis';
+import { getProxiedFetch, getAxiosProxyConfig, getRandomFingerprint, getProxyIdFromFetch, reportProxySuccess, reportProxyFailure } from '../utils/proxyPool';
 
 export class YouTubeScraperService {
   private browser: Browser | null = null;
@@ -236,10 +237,14 @@ export class YouTubeScraperService {
 
   private async fetchMetadataViaInnertube(videoId: string): Promise<VideoMetadata> {
     const { Innertube, UniversalCache } = await import('youtubei.js');
-    const client = await Innertube.create({
+    const proxiedFetch = getProxiedFetch();
+    const opts: any = {
       lang: 'en', location: 'US', retrieve_player: true,
       cache: new UniversalCache(false), generate_session_locally: true,
-    });
+    };
+    if (proxiedFetch) opts.fetch = proxiedFetch;
+    const metaProxyId = getProxyIdFromFetch(proxiedFetch);
+    const client = await Innertube.create(opts);
 
     const suppress = this.suppressYtjsWarnings();
     try {
@@ -252,8 +257,10 @@ export class YouTubeScraperService {
         || pi?.title?.text || pi?.title?.toString?.()
         || '';
       if (!title) {
+        reportProxyFailure(metaProxyId);
         throw new Error(`Innertube returned empty title for ${videoId}`);
       }
+      reportProxySuccess(metaProxyId);
 
       const channel = bi.author
         || si?.owner?.author?.name
@@ -572,14 +579,17 @@ export class YouTubeScraperService {
       // sp=EgIQAQ filters for: Videos only
       const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=EgIQAQ`;
       
+      const searchFp = getRandomFingerprint();
+      const searchProxy = getAxiosProxyConfig();
       const response = await axios.get(searchUrl, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'User-Agent': searchFp.userAgent,
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Language': searchFp.acceptLanguage,
           'Connection': 'keep-alive',
         },
-        timeout: 2000, // Reduced to 2 seconds
+        ...(searchProxy.httpAgent ? { httpAgent: searchProxy.httpAgent, httpsAgent: searchProxy.httpsAgent } : {}),
+        timeout: 4000,
         maxRedirects: 0,
         validateStatus: (status) => status < 400
       });

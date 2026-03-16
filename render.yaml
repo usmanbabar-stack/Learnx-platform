@@ -62,6 +62,10 @@ services:
         value: all
       - key: SCRAPER_ENABLED
         value: "false"
+      - key: PROXY_ENABLED
+        value: "true"
+      - key: WEBSHARE_PROXIES
+        sync: false
 
   - type: web
     name: learnx-asr
