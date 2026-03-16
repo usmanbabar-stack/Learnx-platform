@@ -26,7 +26,7 @@ function getApiKey(): string | null {
 export async function fetchTranscriptViaSupadata(videoId: string): Promise<SupadataTranscriptSegment[]> {
   const apiKey = getApiKey();
   if (!apiKey) {
-    logger.debug('Supadata skipped: SUPADATA_API_KEY not set');
+    logger.warn('Supadata skipped: SUPADATA_API_KEY not set (set in Render env vars for transcript extraction)');
     return [];
   }
 

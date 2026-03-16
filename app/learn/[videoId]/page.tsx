@@ -278,22 +278,27 @@ export default function VideoLearningPage({ params }: { params: { videoId: strin
         message: status.data?.message
       });
       
-      // 🔧 CRITICAL FIX: Check for Qdrant readiness, not just orchestration status
+      // Ready when backend says ready (includes general-knowledge mode when chunkCount=0)
+      const backendReady = status.data?.ready === true;
       const isQdrantReady = status.data?.qdrantReady === true;
       const hasChunks = (status.data?.chunkCount || 0) > 0;
-      const isTrulyReady = status.success && isQdrantReady && hasChunks;
       
-      if (isTrulyReady) {
+      if (status.success && backendReady) {
         setChatbotReady(true);
-        const wordCount = status.data.wordCount ? ` (${status.data.wordCount} words indexed)` : '';
-        const chunkInfo = status.data.chunkCount ? ` - ${status.data.chunkCount} chunks` : '';
-        setChatbotStatus(`Ready for questions!${wordCount}${chunkInfo}`);
-        console.log('✅ Chatbot is now ready with', status.data.chunkCount, 'Qdrant chunks!');
+        const msg = status.data?.message || status.data?.status;
+        if (hasChunks) {
+          const wordCount = status.data.wordCount ? ` (${status.data.wordCount} words indexed)` : '';
+          const chunkInfo = status.data.chunkCount ? ` - ${status.data.chunkCount} chunks` : '';
+          setChatbotStatus(`Ready for questions!${wordCount}${chunkInfo}`);
+        } else {
+          setChatbotStatus(msg || 'Ready (no captions - using AI knowledge)');
+        }
+        console.log('✅ Chatbot ready:', hasChunks ? `${status.data.chunkCount} chunks` : 'general-knowledge mode');
       } else {
-        if (!isQdrantReady) {
+        if (!isQdrantReady && !backendReady) {
           setChatbotStatus('Indexing for AI search... (check again in a moment)');
           console.log('⏳ Qdrant still indexing:', status.data?.chunkCount || 0, 'chunks so far');
-        } else if (!hasChunks) {
+        } else if (!hasChunks && !backendReady) {
           setChatbotStatus('Preparing AI search index...');
           console.log('⏳ Waiting for chunks to be created');
         } else {
@@ -449,7 +454,18 @@ export default function VideoLearningPage({ params }: { params: { videoId: strin
       
       console.log('Loading video metadata for ID:', videoId);
       
-      // Try to fetch video data from backend in background
+      // 🚀 CRITICAL: Fire preload IMMEDIATELY (before getVideo) so Supadata starts ASAP when switching videos
+      // Previously preload ran after getVideo, causing 2–3 min delay before transcript extraction
+      setChatbotStatus('Preparing AI assistant...');
+      if (isLoggedInRef.current) {
+        apiService.preloadTranscript(videoId).then(() => {
+          console.log('✅ Transcript preload request sent');
+        }).catch(() => {
+          console.log('⚠️ Transcript preload initiated (background)');
+        });
+      }
+      
+      // Fetch video metadata in parallel (don't block preload)
       try {
         const response = await apiService.getVideo(videoId);
         if (response.success && response.data) {
@@ -461,20 +477,6 @@ export default function VideoLearningPage({ params }: { params: { videoId: strin
             transcript: "",
             subject: response.data.subject || "Educational",
             instructor: response.data.channel || "Instructor",
-          });
-        }
-        
-        // 🚀 OPTIMIZATION: Preload transcript immediately when video loads
-        // This ensures chatbot is ready by the time user asks first question
-        console.log('🔄 Preloading transcript for chatbot readiness...');
-        setChatbotStatus('Preparing AI assistant...');
-        
-        // Fire preload request (don't await) - but check login status
-        if (isLoggedInRef.current) {
-          apiService.preloadTranscript(videoId).then(() => {
-            console.log('✅ Transcript preload request sent');
-          }).catch(err => {
-            console.log('⚠️ Transcript preload initiated (background)');
           });
         }
         
@@ -501,39 +503,35 @@ export default function VideoLearningPage({ params }: { params: { videoId: strin
               message: status.data?.message
             });
             
-            // 🔧 CRITICAL FIX: Only consider ready when Qdrant is indexed (for AI search)
-            // The orchestration service might say "ready" but Qdrant indexing is still in progress
+            // Ready when backend says ready (includes general-knowledge mode when chunkCount=0)
+            const backendReady = status.data?.ready === true;
             const isQdrantReady = status.data?.qdrantReady === true;
             const hasChunks = (status.data?.chunkCount || 0) > 0;
-            const isTrulyReady = status.success && isQdrantReady && hasChunks;
             
-            if (isTrulyReady) {
+            if (status.success && backendReady) {
               setChatbotReady(true);
-              const wordCount = status.data.wordCount ? ` (${status.data.wordCount} words indexed)` : '';
-              const chunkInfo = status.data.chunkCount ? ` - ${status.data.chunkCount} chunks` : '';
-              setChatbotStatus(`Ready for questions!${wordCount}${chunkInfo}`);
-              console.log('✅ Chatbot is NOW READY! Qdrant indexed with', status.data.chunkCount, 'chunks');
+              if (hasChunks) {
+                const wordCount = status.data.wordCount ? ` (${status.data.wordCount} words indexed)` : '';
+                const chunkInfo = status.data.chunkCount ? ` - ${status.data.chunkCount} chunks` : '';
+                setChatbotStatus(`Ready for questions!${wordCount}${chunkInfo}`);
+              } else {
+                setChatbotStatus(status.data?.message || status.data?.status || 'Ready (no captions - using AI knowledge)');
+              }
+              console.log('✅ Chatbot NOW READY:', hasChunks ? `${status.data.chunkCount} chunks` : 'general-knowledge mode');
               return true; // Stop polling
             } else {
-              // Show specific status based on what's ready
-              if (!isQdrantReady) {
+              if (!isQdrantReady && !backendReady) {
                 lastStatusMessage = 'Indexing for AI search...';
                 console.log('⏳ Waiting for Qdrant indexing... (chunks:', status.data?.chunkCount || 0, ')');
-              } else if (!hasChunks) {
+              } else if (!hasChunks && !backendReady) {
                 lastStatusMessage = 'Preparing AI search index...';
                 console.log('⏳ Waiting for chunks to be created...');
               } else {
-                // Use backend message as fallback
                 const elapsed = pollCountRef.current * 2;
-                if (elapsed < 30) {
-                  lastStatusMessage = 'Processing video transcript...';
-                } else if (elapsed < 60) {
-                  lastStatusMessage = 'Extracting subtitles... (this may take a minute)';
-                } else if (elapsed < 120) {
-                  lastStatusMessage = 'Indexing content for AI... (almost ready)';
-                } else {
-                  lastStatusMessage = 'Still processing... (large video)';
-                }
+                if (elapsed < 30) lastStatusMessage = 'Processing video transcript...';
+                else if (elapsed < 60) lastStatusMessage = 'Extracting subtitles... (this may take a minute)';
+                else if (elapsed < 120) lastStatusMessage = 'Indexing content for AI... (almost ready)';
+                else lastStatusMessage = 'Still processing... (large video)';
               }
               setChatbotStatus(lastStatusMessage);
               console.log(`⏳ Still processing: ${lastStatusMessage}`);

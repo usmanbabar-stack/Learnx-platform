@@ -550,8 +550,15 @@ export class VideoController {
         wordCount = transcript.reduce((count, seg) => count + seg.text.split(' ').length, 0);
       } catch {}
 
-      // 🚀 CRITICAL: Ready if Qdrant is indexed (don't wait for DB)
+      // 🚀 CRITICAL: Ready if Qdrant is indexed OR orchestration says ready (general-knowledge fallback)
       const ready = qdrantReady || orchestrationStatus.ready;
+
+      // When ready with 0 chunks = general-knowledge mode; use orchestration message
+      const message = ready
+        ? (chunkCount > 0
+            ? 'Transcript ready - chatbot is optimized for instant responses'
+            : (orchestrationStatus.message || 'Ready (no captions - using AI knowledge)'))
+        : (orchestrationStatus.message || 'Transcript still processing...');
 
       res.json({
         success: true,
@@ -562,9 +569,7 @@ export class VideoController {
           chunkCount,
           wordCount,
           status: orchestrationStatus.message,
-          message: ready 
-            ? 'Transcript ready - chatbot is optimized for instant responses' 
-            : orchestrationStatus.message || 'Transcript still processing...'
+          message
         }
       });
 
